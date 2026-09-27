@@ -6,6 +6,7 @@ pub struct Config {
     pub dns_socket: PathBuf,
     pub origin: String,
     pub truelog_cli: PathBuf,
+    pub truelog_config: PathBuf,
     pub listeners: super::listener_config::ListenerConfig,
 }
 impl Config {
@@ -15,13 +16,16 @@ impl Config {
                 .unwrap_or_else(|_| "abpki.sqlite".into())
                 .into(),
             worm: env::var("ABPKI_WORM")
-                .unwrap_or_else(|_| "/mnt/worm-storage/pki".into())
+                .map_err(|_| "ABPKI_WORM must specify the installation WORM directory")?
                 .into(),
             dns_socket: env::var("AUTOBRICKS_DNS_SOCKET")
                 .unwrap_or_else(|_| "/run/autobricks-dns/autobricks-dns.sock".into())
                 .into(),
             truelog_cli: env::var("ABPKI_TRUELOG_CLI")
                 .unwrap_or_else(|_| "/usr/bin/ab-truelog-cli".into())
+                .into(),
+            truelog_config: env::var("ABPKI_TRUELOG_CONFIG")
+                .unwrap_or_else(|_| "/etc/default/autobricks-log".into())
                 .into(),
             origin: env::var("ABPKI_ORIGIN").unwrap_or_default(),
             listeners: super::listener_config::ListenerConfig::parse(

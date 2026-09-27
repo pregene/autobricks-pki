@@ -1,5 +1,144 @@
 # Development history
 
+## 1.0.069 — 2026-09-27
+
+- Built and inspected both Ubuntu 22.04 amd64 Debian packages, shared screen payloads, maintainer-script syntax, binary help, and distribution OpenSSL linkage.
+
+- Added server-plus-client and client-only Debian package composition with shared curses installation screens and separate package entry points.
+- Added the local Rust client daemon, Unix socket requests, installed JSON connection settings, OS trust loading, caller-owned token files, and hidden administrator password prompts.
+- Added Root CA enrollment, immediate installer socket access, client service management, and owned trust cleanup.
+- Generated and persisted the server installation ADMIN password, preserving it across reconfiguration and displaying it on successful completion.
+- Isolated distribution OpenSSL headers to prevent ABI mismatches with libraries when a different OpenSSL installation exists under /usr/local.
+- Passed the panic gate with 33 Rust regression tests and seven isolated installer tests using distribution OpenSSL; verified curses backend success/failure and password display.
+
+## 1.0.060 — 2026-09-27
+
+- Removed redundant package-type and automatic client configuration captions from the installation screen.
+
+- Added a visible editing cursor with positional insertion, navigation, and deletion; moved field length hints onto the input row.
+
+- Added a generated 16-character ADMIN password to the server installation completion screen and documented its server configuration storage. The screen test keeps the password in memory only.
+
+- Colored the installation header product name and copyright blue and the full version green.
+
+- Enforced installer field length and character restrictions during input, with bounded controls and inline limits.
+
+- Replaced the screen preview review step with Install, simulated installation progress, and Finish controls.
+
+- Removed package selection from the installer preview; server and client preview commands open their respective settings directly.
+
+- Updated the installation screen preview to read the full product version from VERSION and display the standard product banner.
+
+- Added a curses installation screen preview for combined server/client and client-only flows with in-memory input validation and review, without installation side effects.
+
+- Removed password-entry and credential-handling prescriptions from the package installation specification.
+
+- Added PACKAGE.md describing combined server/client and client-only package composition, installation inputs, trust enrollment, and removal behavior.
+
+- Removed the duplicate examples directory and package copy; retained LEAF-CREATE.md as the request field reference.
+- Embedded the create help JSON directly in source without an external example-file build dependency.
+
+## 1.0.059 — 2026-09-27
+
+- Added a server certificate request JSON example, embedded it in create help, and documented how to prepare request.json.
+- Included the example and leaf creation reference in the Debian package.
+
+## 1.0.058 — 2026-09-27
+
+- Aligned server and client help banners with the Autobricks product format, displaying the full version once without a parenthesized build label.
+
+## 1.0.057 — 2026-09-27
+
+- Allocated a fresh Unix-timestamp WORM namespace for each installation and persisted its timestamp and archive path in the service environment file.
+- Preserved the configured namespace across reconfiguration and upgrades while isolating fresh installations from retained archives after purge.
+- Built version 1.0.057 binaries and Debian package and verified the packaged installer and service configuration.
+- Required an explicit server WORM directory and updated the service write paths and storage documentation.
+- Verified namespace retention, timestamp collision handling, configuration consistency, and reservation failure handling with three isolated installer tests.
+
+## 1.0.056 — 2026-09-27
+
+- Replaced compact server and client help with a product banner, operation descriptions, global options, operation-specific help, and examples.
+- Added -h and -V aliases; help is available before runtime configuration, credentials, or network access.
+- Built and staged both binaries in bin/ and verified 36 help/version invocations without runtime settings or output files.
+
+## 1.0.055 — 2026-09-27
+
+- Added version 1.1 additional Intermediate CA creation to the README feature roadmap.
+
+- Added the planned HSM 1.3 and TPM 1.4 integration versions to README.
+
+- Added a local panic gate with production Clippy checks and malformed-input regression coverage.
+- Replaced build-script and URL-encoding panic paths with error returns, and fixed management frame-limit addition overflow.
+- Passed all 33 regression tests, including duration preservation, single-purpose validation, and disabled additional CA creation.
+- Built and staged abpkid and abpki-cli version 1.0.055 in bin/.
+
+## 1.0.046 — 2026-09-27
+
+- Disabled additional Intermediate CA creation in version 1.0 with CLI/service Not implemented errors and a management 501 response, retaining installation hierarchy creation and internal renewal.
+
+- Preserved exact certificate duration during leaf, service TLS, and Intermediate CA renewal and defined the renewal request with fingerprint only, without a duration parameter.
+
+- Replaced per-command credential environment examples with Unix socket request credentials, caller-owned token storage, and CLI password input in creation, renewal, revocation, and download documentation.
+
+- Specified client installation Root CA retrieval, OS trust-store registration, verified TLS connection, and persisted endpoint configuration.
+
+- Clarified client installation address/port configuration, TOML connection fields, and separate daemon and Unix socket command responsibilities.
+
+- Documented Unix socket calls to a local PKI client service with installation-managed server and TLS trust configuration, and updated leaf creation and CLI flows.
+
+- Rejected multiple purpose URI SANs and updated issuance examples to combine one purpose with access-policy entries.
+
+- Documented JSON array syntax for multiple URI SAN entries.
+
+- Aligned leaf creation documentation with VALID issuer selection, WORM source storage, numeric CA-to-leaf relations, and confirmed audit delivery.
+
+- Specified an indexed Intermediate-to-leaf relation table and WORM-only certificate/key contents with SQLite metadata and file paths.
+
+- Specified coordinated Intermediate CA and leaf handover, persisted transition timestamps, download-based retirement, and mandatory seven-day revocation with issuer-specific CRL publication requirements.
+
+- Specified automatic predecessor revocation after authenticated replacement download confirmation, including numeric renewal linkage and retry behavior.
+
+- Documented SUPERSEDED as a temporary certificate renewal handover state, distinct from CRL revocation, with existing-certificate use during replacement download.
+
+- Documented the certificate valid field separately from operation results, validity timestamps, and X.509 revocation reasons.
+
+- Documented separator-free hexadecimal fingerprint and serial storage and aligned OCSP audit serial formatting with the existing serial encoder.
+
+- Expanded ERROR.md with per-operation failure conditions, validation precedence, management response mapping, OCSP outcome matrices, and retry and audit persistence boundaries.
+
+- Added ERROR.md defining shared integer operation results and linked audit results, OCSP status mapping, and certificate lifecycle documentation.
+
+- Removed the audit request identifier and mapped audit fields to existing socket, certificate, OCSP, outbox, and TrueLog data sources and runtime interfaces.
+
+- Simplified audit confirmation fields to TrueLog checksums and documented OCSP JSON payloads containing peer IP, queried certificate identity, and response status.
+
+- Documented the audit table contract for certificate creation, revocation, renewal, and OCSP history, including numeric certificate references, TrueLog receipts, and query indexes.
+
+- Added automatically incremented integer primary keys for certificates and CRLs, a required unique certificate fingerprint, and a numeric CRL foreign key to certificates.
+- Removed legacy database and plaintext-key migration handling from initialization.
+
+- Added leaf creation, revocation, and renewal specifications covering request fields, authorization, processing, delivery, and retry behavior.
+
+- Added DDL.md documenting the SQLite schema, relationships, settings, encrypted key fields, delivery outbox, and schema initialization.
+
+- Added OS and OS-version fields to hyphen-separated Debian package filenames and updated installation examples.
+
+## 1.0.045 — 2026-09-27
+
+- Added a Debian package builder, debconf installation prompts, and the abpkid systemd service.
+- Added installation validation, PKI account provisioning, DNS/TrueLog/WORM group access, CA initialization, and service startup.
+- Added remove preservation and purge cleanup of mutable PKI state, package-owned accounts, and unchanged PKI DNS records while retaining WORM and TrueLog archives.
+- Accepted the protected writer-group permissions exposed by TrueLog WORM for encrypted certificate-key archives.
+- Built the amd64 Debian package using distribution OpenSSL 3 and retained its applicable license notices.
+
+## 1.0.043 — 2026-09-27
+
+- Documented a minimum 365-day TrueLog retention period in README installation prerequisites.
+
+- Added installation-time TrueLog retention configuration reading and persisted the retention-derived Intermediate CA validity policy in SQLite.
+- Applied min(398, retention days minus seven) to default CA creation and renewal, and rejected explicit CA durations exceeding that limit.
+- Updated validity, installation, and storage documentation.
+
 ## 1.0.042 — 2026-09-27
 
 - Limited Intermediate CA name components to 16 ASCII characters, excluding the baseDomain suffix, in CA creation and DNS generation.

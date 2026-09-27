@@ -1,43 +1,33 @@
 # Storage
 
-`abpkid` uses SQLite as its database on mutable storage outside `autobricks-worm`. The live SQLite database and its working files are not stored in WORM storage.
+Autobricks PKI Server 1.0 uses SQLite on mutable storage and the Autobricks TrueLog-provided WORM mount for immutable artifacts. The live database and its journal remain outside WORM.
 
-`autobricks-worm` provides appendable WORM storage for audit logs and generated certificates. SQLite backup copies can also be stored in `autobricks-worm` as backup artifacts.
-
-## Mounted filesystem access
-
-`/mnt/worm-storage` supports direct file I/O for generated certificates and SQLite backup artifacts. Autobricks TrueLog is a prerequisite for Autobricks PKI installation and provides this mount. `autobricks-truelog` builds on `autobricks-worm`, adding True Log functionality while retaining its WORM filesystem capabilities. Writes through the mount remain subject to appendable WORM rules and filesystem permissions.
-
-True Log record submission provides checksum-chain records and write receipts. Direct artifact file writes use the mounted filesystem interface.
+## Storage roles
 
 | Data | Storage |
 | --- | --- |
-| Live SQLite database, encrypted keys, key encryption password, administrator password hash, and working files | Mutable storage outside WORM |
-| Audit logs | TrueLog-managed appendable WORM logs |
-| Generated certificates and encrypted private-key PEM copies | autobricks-worm certificate archive |
-| SQLite backup copies | autobricks-worm can store backup artifacts |
+| Certificate PEM and encrypted Root/Intermediate/leaf private-key PEM | Original files under `ABPKI_WORM`, normally `/mnt/worm-storage/<installation-timestamp>/pki`. |
+| Certificate metadata, state, file paths, CA-to-leaf relationships, and access-token hashes | SQLite. |
+| Private-key encryption password and administrator password hash | SQLite settings. |
+| Audit log contents | TrueLog-managed WORM files. |
+| Queryable audit history and TrueLog confirmation checksums | SQLite audit design. |
+| Pending audit and DNS delivery | SQLite outbox. |
+| SQLite backup artifacts | WORM can retain backup files. |
 
-```mermaid
-flowchart LR
-    Server[abpkid] -->|Database operations| Database[(SQLite on mutable storage)]
-    Server -->|Audit events| CLI[ab-truelog-cli]
-    CLI --> TrueLog[Autobricks TrueLog]
-    TrueLog -->|Managed logs| WORM["/mnt/worm-storage: appendable WORM"]
-    Server -->|Direct file write: certificates and private keys| WORM
-    Database -.->|Backup copy| Backup[SQLite backup artifact]
-    Backup -.->|Direct file write: optional backup storage| WORM
-```
+Certificate and key bytes are not duplicated in SQLite under this storage contract. Read them through the WORM mount for signing, TLS, chain construction, and downloads. The `intermediate_leaf` table provides indexed numeric CA-to-leaf membership. See [DDL](../DDL.md).
 
-## Durable delivery
+## Issuance boundary
 
-Certificate issuance and revocation commit certificate state and pending delivery records in one SQLite transaction. Pending records deliver certificates and their encrypted private-key copies through file I/O to the configured WORM directory. Audit events are submitted through `ab-truelog-cli` using service name `abpkid`. TrueLog owns audit file creation, append operations, daily rotation, and checksum-chain management. Server issuance also queues DNS registration through the Autobricks DNS control socket.
+Generate the certificate and key, encrypt the key, and write and synchronize both WORM files. Only then commit the metadata, relative file paths, CA-to-leaf relation, and audit/DNS outbox operations. A WORM failure prevents successful issuance. A later DNS or TrueLog failure leaves its delivery pending without reversing a committed certificate.
 
-Delivery retries run every 30 seconds and after certificate operations. Successful delivery marks the corresponding record complete. Identical existing artifacts are accepted, and a partial artifact can be completed by appending its missing suffix; conflicting bytes are never overwritten. Root CA, Intermediate CA, and leaf private keys are archived as encrypted PKCS#8 PEM alongside their certificates. Operational keys remain in SQLite; download archives are not written to WORM. See [artifact paths and permissions](../FILES.md#worm-artifacts).
+WORM and SQLite do not share an atomic transaction. A failed metadata transaction can leave immutable unreferenced files; retention still applies. Do not overwrite, delete, or access backing SOURCE storage to simulate rollback. Relative path validation, certificate fingerprint verification, and key matching protect subsequent reads.
 
-Issuance responses include `integrations_pending` when external delivery remains incomplete. A pending DNS or WORM operation does not undo the already committed certificate. SQLite delivery records provide retry state; they do not make SQLite and external services one atomic transaction.
+## Audit delivery
 
-## TrueLog audit delivery
+PKI submits events through `ab-truelog-cli` using service `abpkid`. TrueLog manages log files, rotation, checksums, and retention. PKI stores confirmed audit metadata and returned before/after checksums, not a separate audit log file. A lost response can follow a committed write; stable event identifiers correlate retries but do not provide exactly-once remote delivery.
 
-Install and configure `autobricks-truelog-cli` on the PKI host and grant the PKI operating-system account access to its client socket. The TrueLog client/server connection settings belong to TrueLog. Audit service `abpkid` is separate from the PKI certificate archive directory.
+## Runtime coverage
 
-PKI submits event type, certificate fingerprint, timestamp, and a stable event ID through the CLI and validates the returned write receipt before completing the pending delivery record. PKI does not maintain a local audit log file or a checksum chain. Failed submissions remain pending. A committed TrueLog write followed by a lost response can produce a duplicate on retry; the stable event ID identifies the same event across attempts. This interface does not provide exactly-once delivery.
+Current code still stores PEM contents in SQLite and queues WORM copies after commit. Moving source reads and writes to WORM, replacing PEM columns with paths, inserting CA-to-leaf relations, and persisting confirmed audit rows are specified storage changes, not implemented runtime behavior. No legacy database migration is included.
+
+[File layouts](../FILES.md) · [Key storage](key-storage.md) · [SQLite schema](../DDL.md)

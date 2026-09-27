@@ -5,6 +5,7 @@ pub mod authority;
 pub mod authorization;
 pub mod certificate;
 pub mod client;
+pub mod help;
 pub mod integration;
 pub mod revocation;
 pub mod server;

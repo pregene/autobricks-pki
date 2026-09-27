@@ -54,20 +54,18 @@ impl Database {
         let conn = Connection::open(path)?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         let schema: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if schema > 2 {
+        if schema > 1 {
             return Err("database schema is newer than this binary".into());
         }
 
         conn.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA secure_delete=ON;
         CREATE TABLE IF NOT EXISTS settings(name TEXT PRIMARY KEY, value BLOB NOT NULL);
-        CREATE TABLE IF NOT EXISTS certificates(fingerprint TEXT PRIMARY KEY,cn TEXT NOT NULL,kind TEXT NOT NULL,issuer TEXT REFERENCES certificates(fingerprint),serial TEXT NOT NULL,not_before INTEGER NOT NULL,not_after INTEGER NOT NULL,pem TEXT NOT NULL,key_pem TEXT NOT NULL,revoked_at INTEGER,profile TEXT,download_hash BLOB,UNIQUE(issuer,serial));
-        CREATE TABLE IF NOT EXISTS crls(issuer TEXT PRIMARY KEY REFERENCES certificates(fingerprint),pem BLOB NOT NULL,next_update INTEGER NOT NULL,number INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS certificates(idx INTEGER PRIMARY KEY AUTOINCREMENT,fingerprint TEXT NOT NULL UNIQUE,cn TEXT NOT NULL,kind TEXT NOT NULL,issuer TEXT REFERENCES certificates(fingerprint),serial TEXT NOT NULL,not_before INTEGER NOT NULL,not_after INTEGER NOT NULL,pem TEXT NOT NULL,key_pem TEXT NOT NULL,revoked_at INTEGER,profile TEXT,download_hash BLOB,UNIQUE(issuer,serial));
+        CREATE TABLE IF NOT EXISTS crls(idx INTEGER PRIMARY KEY AUTOINCREMENT,issuer INTEGER NOT NULL UNIQUE REFERENCES certificates(idx),pem BLOB NOT NULL,next_update INTEGER NOT NULL,number INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS outbox(id INTEGER PRIMARY KEY,kind TEXT NOT NULL,payload TEXT NOT NULL,done INTEGER NOT NULL DEFAULT 0);")?;
         let database = Self { conn };
         database.initialize_key_encryption()?;
-        if schema == 1 {
-            database.conn.execute_batch("VACUUM")?;
-        }
+        database.conn.pragma_update(None, "user_version", 1)?;
         Ok(database)
     }
     pub fn setting(&self, name: &str) -> Result<Option<Vec<u8>>> {
@@ -87,7 +85,7 @@ impl Database {
     }
     pub fn insert(&self, c: &Certificate) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO certificates VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO certificates(fingerprint,cn,kind,issuer,serial,not_before,not_after,pem,key_pem,revoked_at,profile,download_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
             params![
                 c.fingerprint,
                 c.cn,
@@ -106,7 +104,7 @@ impl Database {
         Ok(())
     }
     pub fn all(&self) -> Result<Vec<Certificate>> {
-        let mut q=self.conn.prepare("SELECT fingerprint,cn,kind,issuer,serial,not_before,not_after,pem,key_pem,revoked_at,profile,download_hash FROM certificates ORDER BY rowid")?;
+        let mut q=self.conn.prepare("SELECT fingerprint,cn,kind,issuer,serial,not_before,not_after,pem,key_pem,revoked_at,profile,download_hash FROM certificates ORDER BY idx")?;
         let mut certificates = q
             .query_map([], |r| {
                 Ok(Certificate {

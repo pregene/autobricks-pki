@@ -3,7 +3,6 @@ use crate::{
     certificate::{
         crypto,
         profile::{LeafKind, LeafProfile},
-        validity::{LEAF_DAYS, Validity},
     },
     integration::dns,
     server::service::{Create, Issued, Service, now, record},
@@ -123,7 +122,7 @@ impl Service {
         }
         Ok(tar.into_inner()?.finish()?)
     }
-    pub fn renew(&self, id: &str, token: &str, days: Option<u32>) -> Result<Issued> {
+    pub fn renew(&self, id: &str, token: &str) -> Result<Issued> {
         let old = self.db.get(id)?;
         self.authorize_download(&old, token)?;
         if old.revoked_at.is_some() || !old.validity.renewable(now()) {
@@ -141,7 +140,7 @@ impl Service {
             .filter(|c| c.kind == "intermediate" && c.cn == old_ca.cn)
             .max_by_key(|c| c.validity.not_after)
             .ok_or("missing issuer")?;
-        profile.validity = Validity::new(now(), days.unwrap_or(LEAF_DAYS), Some(issuer.validity))?;
+        profile.validity = old.validity.renewed(now(), issuer.validity)?;
         let mut issued = self
             .db
             .transaction(|| self.create_inner(&issuer, &profile))?;

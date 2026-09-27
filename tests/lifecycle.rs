@@ -55,6 +55,7 @@ impl Fixture {
                 }
             }
         });
+        std::fs::write(temp.path().join("truelog.env"), "AB_WORM_RETAIN_DAYS=365\n").unwrap();
         let service = Service {
             db: Database::open(&temp.path().join("pki.sqlite"), &worm).unwrap(),
             worm: Worm::new(&worm).unwrap(),
@@ -70,6 +71,7 @@ impl Fixture {
                 "localhost",
                 "127.0.0.1".parse().unwrap(),
                 "autobricks.internal",
+                365,
             )
             .unwrap();
         Self {
@@ -78,6 +80,44 @@ impl Fixture {
             stop,
             thread: Some(thread),
         }
+    }
+    fn seed_intermediate(
+        &self,
+        cn: &str,
+        days: u32,
+    ) -> autobricks_pki::storage::database::Certificate {
+        use autobricks_pki::{certificate::crypto, storage::database::Certificate};
+        let root = self.service.root().unwrap();
+        let root_cert = X509::from_pem(root.pem.as_bytes()).unwrap();
+        let root_key = openssl::pkey::PKey::private_key_from_pem(root.key_pem.as_bytes()).unwrap();
+        let validity = Validity::new(now(), days, Some(root.validity)).unwrap();
+        let (cert, key) = crypto::ca(cn, Some((&root_cert, &root_key)), validity).unwrap();
+        let record = Certificate {
+            fingerprint: crypto::fingerprint(&cert).unwrap(),
+            cn: cn.into(),
+            kind: "intermediate".into(),
+            issuer: Some(root.fingerprint),
+            serial: crypto::serial(&cert).unwrap(),
+            validity,
+            pem: String::from_utf8(cert.to_pem().unwrap()).unwrap(),
+            key_pem: String::from_utf8(key.private_key_to_pem_pkcs8().unwrap()).unwrap(),
+            revoked_at: None,
+            profile: None,
+            download_hash: None,
+        };
+        self.service.db.insert(&record).unwrap();
+        let timestamp = now();
+        let crl = autobricks_pki::revocation::crl::generate(
+            &record,
+            &self.service.db.all().unwrap(),
+            timestamp,
+            1,
+        )
+        .unwrap();
+        let connection = rusqlite::Connection::open(self._temp.path().join("pki.sqlite")).unwrap();
+        connection.execute("INSERT INTO crls(issuer,pem,next_update,number) VALUES((SELECT idx FROM certificates WHERE fingerprint=?),?,?,1)",
+            rusqlite::params![record.fingerprint, crl, autobricks_pki::revocation::crl::next_update(timestamp).unwrap()]).unwrap();
+        record
     }
     fn issue(&self, days: u32) -> autobricks_pki::server::service::Issued {
         self.service
@@ -168,10 +208,7 @@ fn complete_lifecycle_and_signed_status() {
         response.basic().unwrap().find_status(&id).unwrap().status,
         OcspCertStatus::REVOKED
     );
-    assert!(
-        s.renew(&c.fingerprint, &issued.download_token, None)
-            .is_err()
-    );
+    assert!(s.renew(&c.fingerprint, &issued.download_token).is_err());
 }
 #[test]
 fn renewal_and_authorization() {
@@ -179,18 +216,18 @@ fn renewal_and_authorization() {
     let issued = f.issue(6);
     let renewed = f
         .service
-        .renew(
-            &issued.certificate.fingerprint,
-            &issued.download_token,
-            None,
-        )
+        .renew(&issued.certificate.fingerprint, &issued.download_token)
         .unwrap();
+    assert_eq!(
+        renewed.certificate.validity.not_after - renewed.certificate.validity.not_before,
+        issued.certificate.validity.not_after - issued.certificate.validity.not_before,
+    );
     assert_ne!(
         issued.certificate.fingerprint,
         renewed.certificate.fingerprint
     );
     assert!(f.service.create_ca("extra", None, b"wrong").is_err());
-    assert!(f.service.create_ca("extra", None, ADMIN).is_ok());
+    assert!(f.service.create_ca("extra", None, ADMIN).is_err());
     assert!(f.service.create_ca("extra", None, ADMIN).is_err());
     assert!(
         f.service
@@ -198,7 +235,8 @@ fn renewal_and_authorization() {
                 ADMIN,
                 "localhost",
                 "127.0.0.1".parse().unwrap(),
-                "autobricks.internal"
+                "autobricks.internal",
+                365,
             )
             .is_err()
     );
@@ -270,7 +308,7 @@ fn tls_client_without_certificate_and_hostname_validation() {
 fn ca_renewal_preserves_status_and_dns_retries() {
     let f = Fixture::new();
     let s = &f.service;
-    let old = s.create_ca("short-lived", Some(6), ADMIN).unwrap();
+    let old = f.seed_intermediate("short-lived", 6);
     let issued = s
         .create(Create {
             issuer: old.fingerprint.clone(),
@@ -407,6 +445,7 @@ fn binaries_and_openssl_ocsp_interoperate() {
             .env("ABPKI_WORM", directory.join("worm"))
             .env("AUTOBRICKS_DNS_SOCKET", &f.service.dns.socket)
             .env("ABPKI_TRUELOG_CLI", &f.service.truelog.executable)
+            .env("ABPKI_TRUELOG_CONFIG", f._temp.path().join("truelog.env"))
             .env("ABPKI_ORIGIN", &origin)
             .env("ABPKI_BIND", "127.0.0.1")
             .env("ABPKI_TLS_PORT", management_address.port().to_string())
@@ -426,22 +465,49 @@ fn binaries_and_openssl_ocsp_interoperate() {
         std::thread::sleep(Duration::from_millis(20));
     }
     assert!(ready);
+    let client_socket = directory.join("client.sock");
+    let client_config = directory.join("client.json");
+    std::fs::write(
+        &client_config,
+        serde_json::to_vec(&autobricks_pki::client::daemon::Config {
+            server: "localhost".into(),
+            port: management_address.port(),
+            https_port: address.port(),
+            unix_socket: client_socket.to_string_lossy().into_owned(),
+            ca: root.to_string_lossy().into_owned(),
+        })
+        .unwrap(),
+    )
+    .unwrap();
+    let mut local_client = Running(
+        Command::new(env!("CARGO_BIN_EXE_abpki-cli"))
+            .args(["daemon", "--config"])
+            .arg(&client_config)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    for _ in 0..100 {
+        if client_socket.exists() {
+            break;
+        }
+        assert!(local_client.0.try_wait().unwrap().is_none());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(client_socket.exists());
     let cli = |args: &[&str], input: Option<&[u8]>, token: Option<&str>| {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_abpki-cli"));
         cmd.args(args)
             .current_dir(directory)
-            .env("ABPKI_SERVER", &management_origin)
-            .env("ABPKI_HTTPS_PORT", address.port().to_string())
-            .env("ABPKI_TRUST_FILE", &root)
-            .env(
-                "ABPKI_ADMIN_PASSWORD",
-                String::from_utf8_lossy(ADMIN).as_ref(),
-            )
+            .env("ABPKI_SOCKET", &client_socket)
+            .env("HOME", directory)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         if let Some(token) = token {
-            cmd.env("ABPKI_ACCESS_TOKEN", token);
+            // Exercise explicit credential-file -> Unix socket forwarding, including wrong tokens.
+            std::fs::write(directory.join(".abpki").join(args[1]), token).unwrap();
         }
         let mut child = cmd.spawn().unwrap();
         if let Some(data) = input {
@@ -501,9 +567,10 @@ fn binaries_and_openssl_ocsp_interoperate() {
     );
     let created: serde_json::Value = serde_json::from_slice(&created.stdout).unwrap();
     let id = created["certificate"]["fingerprint"].as_str().unwrap();
-    let token = created["download_token"].as_str().unwrap();
+    assert!(created.get("download_token").is_none());
+    let token = std::fs::read_to_string(directory.join(".abpki").join(id)).unwrap();
     assert!(
-        cli(&["download", id, "issued"], None, Some(token))
+        cli(&["download", id, "issued"], None, Some(&token))
             .status
             .success()
     );
@@ -546,7 +613,15 @@ fn binaries_and_openssl_ocsp_interoperate() {
     );
     assert!(String::from_utf8_lossy(&good.stdout).contains(": good"));
     assert!(String::from_utf8_lossy(&good.stderr).contains("Response verify OK"));
-    assert!(cli(&["revoke", id, "--pass"], None, None).status.success());
+    assert!(
+        cli(
+            &["revoke", id, "--pass", std::str::from_utf8(ADMIN).unwrap()],
+            None,
+            None
+        )
+        .status
+        .success()
+    );
     let revoked = ocsp_check();
     assert!(
         revoked.status.success(),
@@ -608,6 +683,7 @@ fn local_initialization_and_root_export() {
             .env("ABPKI_WORM", &worm)
             .env("AUTOBRICKS_DNS_SOCKET", &f.service.dns.socket)
             .env("ABPKI_TRUELOG_CLI", &f.service.truelog.executable)
+            .env("ABPKI_TRUELOG_CONFIG", f._temp.path().join("truelog.env"))
             .env("ABPKI_ORIGIN", "https://second.example.internal")
             .env(
                 "ABPKI_ADMIN_PASSWORD",
@@ -723,9 +799,9 @@ fn worm_archives_keys_with_unique_paths_and_truelog_owns_audits() {
 }
 
 #[test]
-fn stored_keys_are_encrypted_and_legacy_sqlite_keys_migrate() {
+fn stored_keys_are_encrypted_and_require_the_password() {
     let f = Fixture::new();
-    let issued = f.issue(47);
+    f.issue(47);
     let database = f._temp.path().join("pki.sqlite");
     let connection = rusqlite::Connection::open(&database).unwrap();
     let password: Vec<u8> = connection
@@ -757,31 +833,6 @@ fn stored_keys_are_encrypted_and_legacy_sqlite_keys_migrate() {
             .unwrap();
         assert!(key.public_eq(&public));
     }
-    let original = &issued.certificate;
-    connection
-        .execute(
-            "UPDATE certificates SET key_pem=? WHERE fingerprint=?",
-            rusqlite::params![original.key_pem, original.fingerprint],
-        )
-        .unwrap();
-    connection.pragma_update(None, "user_version", 1).unwrap();
-    let reopened = Database::open(&database, &f._temp.path().join("worm")).unwrap();
-    assert!(
-        reopened
-            .encrypted_key(&original.fingerprint)
-            .unwrap()
-            .starts_with("-----BEGIN ENCRYPTED PRIVATE KEY-----")
-    );
-    assert_eq!(
-        reopened.get(&original.fingerprint).unwrap().key_pem,
-        original.key_pem
-    );
-    assert!(
-        !std::fs::read(&database)
-            .unwrap()
-            .windows(27)
-            .any(|part| part == b"-----BEGIN PRIVATE KEY-----")
-    );
     connection
         .execute("DELETE FROM settings WHERE name='private_key_password'", [])
         .unwrap();
@@ -812,6 +863,10 @@ fn installation_prompts_for_base_domain_and_builds_ca_subjects() {
                 String::from_utf8_lossy(ADMIN).as_ref(),
             )
             .env("ABPKI_TRUELOG_CLI", &fixture.service.truelog.executable)
+            .env(
+                "ABPKI_TRUELOG_CONFIG",
+                fixture._temp.path().join("truelog.env"),
+            )
             .env("AUTOBRICKS_DNS_SOCKET", &fixture.service.dns.socket)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -914,11 +969,7 @@ fn leaf_names_are_unique_and_dns_names_follow_issuer_and_cn() {
     assert_eq!(f.service.db.all().unwrap().len(), before);
     let renewed = f
         .service
-        .renew(
-            &issued.certificate.fingerprint,
-            &issued.download_token,
-            None,
-        )
+        .renew(&issued.certificate.fingerprint, &issued.download_token)
         .unwrap();
     assert_eq!(renewed.certificate.cn, "web01");
     assert_ne!(
@@ -952,9 +1003,7 @@ fn leaf_names_are_unique_and_dns_names_follow_issuer_and_cn() {
     let mut mismatch = make("web02", "www.autobricks.internal", LeafKind::Server);
     mismatch.profile.dns_names = vec!["other.example.internal".into()];
     assert!(f.service.create(mismatch).is_err());
-    f.service
-        .create_ca("www-a.autobricks.internal", None, ADMIN)
-        .unwrap();
+    f.seed_intermediate("www-a.autobricks.internal", 358);
     f.service
         .create(make("b", "www-a.autobricks.internal", LeafKind::Server))
         .unwrap();
@@ -967,17 +1016,49 @@ fn leaf_names_are_unique_and_dns_names_follow_issuer_and_cn() {
 
 #[test]
 fn intermediate_name_limit_excludes_domain_suffix() {
+    use autobricks_pki::certificate::common_name::intermediate;
+    let domain = "autobricks.internal";
+    assert!(intermediate(&"a".repeat(16), domain).is_ok());
+    assert!(intermediate(&format!("{}.{}", "b".repeat(16), domain), domain).is_ok());
+    assert!(intermediate(&"c".repeat(17), domain).is_err());
+    assert!(intermediate(&format!("{}.{}", "d".repeat(17), domain), domain).is_err());
+}
+
+#[test]
+fn additional_ca_creation_is_unavailable_without_side_effects() {
     let f = Fixture::new();
-    let label = "a".repeat(16);
-    assert!(f.service.create_ca(&label, None, ADMIN).is_ok());
-    let qualified = format!("{}.autobricks.internal", "b".repeat(16));
-    assert!(f.service.create_ca(&qualified, None, ADMIN).is_ok());
-    let count = f.service.db.all().unwrap().len();
-    for name in [
-        "c".repeat(17),
-        format!("{}.autobricks.internal", "d".repeat(17)),
-    ] {
-        assert!(f.service.create_ca(&name, None, ADMIN).is_err());
+    let before = f.service.db.all().unwrap().len();
+    let pending = f.service.db.pending().unwrap();
+    for admin in [ADMIN, b"wrong".as_slice()] {
+        assert!(
+            f.service
+                .create_ca("extra", None, admin)
+                .unwrap_err()
+                .to_string()
+                .contains("Not implemented")
+        );
     }
-    assert_eq!(f.service.db.all().unwrap().len(), count);
+    let response = autobricks_pki::server::routes::dispatch(
+        &f.service,
+        autobricks_pki::transport::request::Request {
+            method: "POST".into(),
+            path: "/api/create-ca".into(),
+            headers: Default::default(),
+            body: vec![],
+        },
+    );
+    assert_eq!(response.status, "501 Not Implemented");
+    assert_eq!(f.service.db.all().unwrap().len(), before);
+    assert_eq!(f.service.db.pending().unwrap(), pending);
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_abpki-cli"))
+        .arg("create-ca")
+        .env_clear()
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("Not implemented")
+    );
 }

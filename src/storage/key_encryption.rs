@@ -7,10 +7,9 @@ impl Database {
     pub(crate) fn initialize_key_encryption(&self) -> Result<()> {
         self.transaction(|| {
             if self.setting(PASSWORD_SETTING)?.is_none() {
-                let count: i64 = self.conn.query_row(
-                    "SELECT count(*) FROM certificates WHERE key_pem LIKE '%BEGIN ENCRYPTED PRIVATE KEY%'",
-                    [], |row| row.get(0),
-                )?;
+                let count: i64 =
+                    self.conn
+                        .query_row("SELECT count(*) FROM certificates", [], |row| row.get(0))?;
                 if count != 0 {
                     return Err("encrypted keys exist without their password".into());
                 }
@@ -19,20 +18,6 @@ impl Database {
                 let password: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
                 self.set_setting(PASSWORD_SETTING, password.as_bytes())?;
             }
-            let records = {
-                let mut query = self.conn.prepare("SELECT fingerprint,key_pem FROM certificates")?;
-                query.query_map([], |row| Ok((row.get::<_,String>(0)?, row.get::<_,String>(1)?)))?
-                    .collect::<std::result::Result<Vec<_>,_>>()?
-            };
-            for (fingerprint, pem) in records {
-                if pem.starts_with("-----BEGIN ENCRYPTED PRIVATE KEY-----") {
-                    self.decrypt_key(&pem)?;
-                } else {
-                    self.conn.execute("UPDATE certificates SET key_pem=? WHERE fingerprint=?",
-                        rusqlite::params![self.encrypt_key(&pem)?, fingerprint])?;
-                }
-            }
-            self.conn.pragma_update(None, "user_version", 2)?;
             Ok(())
         })
     }

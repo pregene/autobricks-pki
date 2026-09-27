@@ -2,7 +2,7 @@ use crate::Result;
 use std::{
     fs::{self, OpenOptions},
     io::Write,
-    os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
+    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
 };
 pub struct Worm {
@@ -13,6 +13,20 @@ impl Worm {
         Ok(Self {
             root: root.canonicalize()?,
         })
+    }
+    fn safe_permissions(&self, metadata: &fs::Metadata) -> Result<bool> {
+        let mode = metadata.permissions().mode();
+        if mode & 0o007 != 0 {
+            return Ok(false);
+        }
+        if mode & 0o070 == 0 {
+            return Ok(true);
+        }
+        let root = fs::metadata(&self.root)?;
+        Ok(root.permissions().mode() & 0o070 != 0
+            && root.permissions().mode() & 0o007 == 0
+            && metadata.uid() == root.uid()
+            && metadata.gid() == root.gid())
     }
     pub fn write_once(&self, name: &str, data: &[u8]) -> Result<()> {
         let parts: Vec<_> = name.split('/').collect();
@@ -35,9 +49,9 @@ impl Worm {
                 Err(error) => return Err(error.into()),
             }
             let metadata = fs::symlink_metadata(&path)?;
-            if !metadata.is_dir() || metadata.permissions().mode() & 0o077 != 0 {
+            if !metadata.is_dir() || !self.safe_permissions(&metadata)? {
                 return Err(
-                    "archive directories require owner-only permissions and no symlinks".into(),
+                    "archive directory permissions do not match the protected WORM root".into(),
                 );
             }
         }
@@ -49,6 +63,9 @@ impl Worm {
             .open(&path)
         {
             Ok(mut f) => {
+                if !self.safe_permissions(&f.metadata()?)? {
+                    return Err("unsafe WORM file permissions".into());
+                }
                 f.write_all(data)?;
                 f.sync_all()?;
                 Ok(())
@@ -57,8 +74,10 @@ impl Worm {
                 if path.is_symlink() {
                     return Err("WORM artifact symlink".into());
                 }
-                if fs::metadata(&path)?.permissions().mode() & 0o077 != 0 {
-                    return Err("archive files require owner-only permissions".into());
+                if !self.safe_permissions(&fs::metadata(&path)?)? {
+                    return Err(
+                        "archive file permissions do not match the protected WORM root".into(),
+                    );
                 }
                 let existing = fs::read(&path)?;
                 if !data.starts_with(&existing) {

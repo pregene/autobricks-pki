@@ -82,7 +82,7 @@ A single end-entity certificate can contain both `serverAuth` and `clientAuth` w
 
 ## Certificate structure
 
-A certificate binds a subject and public key to issuer-signed information. Extensions describe identities, permitted uses, constraints, and discovery endpoints. Multiple identities and purposes can coexist in one certificate.
+A certificate binds a subject and public key to issuer-signed information. Extensions describe identities, permitted uses, constraints, and discovery endpoints. Multiple identities and EKU values can coexist in X.509. The Autobricks service-purpose URI is limited to one value per certificate.
 
 ```mermaid
 flowchart TD
@@ -210,7 +210,7 @@ Registered PKIX purposes are listed in the [IANA registry](https://www.iana.org/
 
 Key Usage and EKU both constrain use; neither overrides the other. An application can require an explicit EKU even when `anyExtendedKeyUsage` is present. [RFC 5280, Section 4.2.1.12 — EKU](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.2.1.12).
 
-### Multiple purposes
+### Multiple EKU values
 
 `serverAuth` and `clientAuth` can coexist in one EKU extension, for example for a service that both accepts and initiates authenticated TLS connections. Multiple DNS SANs can identify that service on several names. The relying application must accept the resulting combination. [OpenSSL EKU](https://docs.openssl.org/3.5/man5/x509v3_config/#extended-key-usage).
 
@@ -269,7 +269,7 @@ The subject private key is not contained in its certificate. Algorithm availabil
 
 ## Server purpose URI SAN
 
-Server certificate issuance requires a URI SAN with the format `urn:autobricks:purpose:<purpose>`. A missing, empty, or unrecognized purpose is an issuance validation error. The purpose is included in the signed certificate, not only in external management records.
+Server certificate issuance requires exactly one URI SAN with the format `urn:autobricks:purpose:<purpose>`. A missing, empty, unrecognized, or repeated purpose is an issuance validation error. Different purpose values also cannot be combined in one certificate. Other URI SAN entries may contain access policies. The purpose is included in the signed certificate, not only in external management records.
 
 Purpose values are lowercase and must match one of the following tokens.
 

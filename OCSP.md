@@ -66,3 +66,7 @@ sequenceDiagram
 The issuing Intermediate CA signs status responses with ECDSA and SHA-256. `CertID` issuer hashes support SHA-1 and SHA-256. Requests can query up to 32 certificates sharing an issuer signing identity. Recognized request nonces are echoed in signed responses. Unknown critical request extensions and malformed messages receive OCSP protocol errors.
 
 Responses contain current `producedAt` and `thisUpdate` timestamps and omit optional `nextUpdate`. HTTP responses disable caching. The fixed seven-day CRL lifetime does not apply to OCSP responses.
+
+[Operation results and audit error codes](ERROR.md)
+
+The local certificate handover state `SUPERSEDED` does not itself indicate revocation. An unrevoked certificate in that state continues to produce `GOOD`; no `SUPERSEDED` OCSP status is encoded. See [certificate lifecycle state](DDL.md#certificate-lifecycle-state).

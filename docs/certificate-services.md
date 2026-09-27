@@ -4,7 +4,7 @@ Autobricks PKI Server 1.0 provides Root CA and Intermediate CA management and ce
 
 ## Certificate authority hierarchy
 
-A Root CA anchors a certificate hierarchy. Intermediate CAs operate under that hierarchy and issue end-entity certificates for servers and clients. Initial installation creates one Root CA and the six [default Intermediate CAs](../INTERMEDIATE.md): `database`, `www`, `vpn`, `worm`, `app`, and `truelog`. Each issues both server and client certificates. Additional Intermediate CA creation requires the administrator password.
+A Root CA anchors a certificate hierarchy. Intermediate CAs operate under that hierarchy and issue end-entity certificates for servers and clients. Initial installation creates one Root CA and the six [default Intermediate CAs](../INTERMEDIATE.md): `database`, `www`, `vpn`, `worm`, `app`, and `truelog`. Each issues both server and client certificates. Additional Intermediate CA creation is unavailable in version 1.0.
 
 ```mermaid
 flowchart TD
@@ -51,7 +51,7 @@ sequenceDiagram
 | Operation | Access |
 | --- | --- |
 | Server or client certificate issuance | Available to any connected client, including clients without a client certificate |
-| Intermediate CA creation | Requires the administrator password |
+| Additional Intermediate CA creation | 501 Not Implemented in version 1.0 |
 | Certificate revocation | Requires the administrator password |
 
 A client without revocation permission cannot revoke certificates, including certificates it obtained itself. Revocation requests with an invalid administrator password are denied.
@@ -60,9 +60,7 @@ A client without revocation permission cannot revoke certificates, including cer
 flowchart TD
     Request[Request over TLS] --> Operation{Operation}
     Operation -->|Issue certificate| Issue[Process certificate issuance]
-    Operation -->|Create Intermediate CA| CAPermission{Valid administrator password?}
-    CAPermission -->|Yes| CreateCA[Create Intermediate CA]
-    CAPermission -->|No| DenyCA[Deny CA creation]
+    Operation -->|Create additional Intermediate CA| Unavailable[501 Not Implemented]
     Operation -->|Revoke certificate| Permission{Valid administrator password?}
     Permission -->|Yes| Revoke[Process certificate revocation]
     Permission -->|No| Deny[Deny revocation]

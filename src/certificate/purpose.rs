@@ -42,6 +42,9 @@ pub fn validate(uris: &[String], server: bool) -> Result<()> {
             if !PURPOSES.contains(&token) {
                 return Err("unknown or empty server purpose".into());
             }
+            if present {
+                return Err("certificates allow only one purpose URI SAN".into());
+            }
             present = true;
         }
     }

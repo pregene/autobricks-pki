@@ -5,11 +5,25 @@
 | Certificate type | Default validity | Renewal responsibility |
 | --- | --- | --- |
 | Root CA | No defined expiration | Root CA management |
-| Intermediate CA | 398 days | Internal renewal by `abpkid` |
+| Intermediate CA | `min(398, TrueLog retention days - 7)` days | Internal renewal by `abpkid` |
 | Server certificate | 47 days | Periodic checks and renewal by the certificate holder |
 | Client certificate | 47 days | Periodic checks and renewal by the certificate holder |
 
-Intermediate CA and leaf validity periods can be changed at creation. Server and client certificates are leaf certificates. Their validity must remain within the issuing Intermediate CA certificate's validity, including when a custom duration is requested.
+Intermediate CA validity may be shortened at creation but cannot exceed its installation-derived maximum. Leaf validity periods can be changed at creation. Server and client certificates are leaf certificates. Their validity must remain within the issuing Intermediate CA certificate's validity, including when a custom duration is requested.
+
+## Installation retention boundary
+
+During installation initialization, `abpkid init` reads `AB_WORM_RETAIN_DAYS` from the installed TrueLog configuration (`/etc/default/autobricks-log` by default). It calculates:
+
+```text
+intermediate_max_days = min(398, truelog_retention_days - 7)
+```
+
+A 365-day retention setting yields 358 days. This value is calculated from installation settings, not fixed at 358. The seven-day margin is measured in elapsed 24-hour days. Missing, unreadable, invalid, or duplicate retention settings prevent CA initialization; retention must exceed seven days.
+
+SQLite stores the observed retention and resulting limit in `settings.ca_validity_policy`. Initial default CAs, additional CA creation, and internal CA renewal use this limit. Explicit validity requests above the limit are rejected. A later TrueLog setting change does not automatically alter this stored policy or the signed contents of existing certificates.
+
+The setting describes the protection period assigned to newly created WORM files. Existing WORM files keep their original retention deadlines. This policy does not change TrueLog configuration or extend existing files' protection.
 
 ## Root CA expiration encoding
 
@@ -81,3 +95,11 @@ flowchart TD
 ```
 
 [Certificate fields](CERTITFICATE.md) · [CLI commands](docs/cli.md)
+
+## Intermediate CA handover limit
+
+Intermediate CA renewal starts a fixed seven-day handover measured from its persisted `superseded_at`. The old CA and non-revoked dependent leaves use `SUPERSEDED` during the transition. Individual leaf download confirmations revoke their predecessors. Once all old leaves are retired, the old CA is revoked; at the deadline, remaining old leaves and the old CA are revoked without waiting for downloads. Existing `not_after` values are never extended by this handover. See [Intermediate CA handover](INTERMEDIATE.md#intermediate-ca-renewal-handover).
+
+## Duration preservation on renewal
+
+Renewal retains `old.not_after - old.not_before` exactly in seconds and applies that duration from the new issuance time. It does not reset a custom lifetime to the default or accept a new duration. A seven-day leaf renews for seven days; shorter-lived Intermediate CAs likewise retain their original lifetime. If the new interval exceeds the issuer boundary, renewal fails rather than reducing the duration. Changing a duration requires a separate issuance request and remains subject to CN uniqueness rules.

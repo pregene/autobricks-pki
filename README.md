@@ -8,7 +8,7 @@ Implementation language: **Rust**. Supported platform: **Linux only**.
 
 Server binary: `abpkid`.
 
-Client binary: `abpki-cli`, connecting to `abpkid` over TLS.
+Client interface: `abpki-cli` calls the local `abpki-client` service through a Unix socket. The client service connects to `abpkid` over TLS using installation-managed configuration. Both package types include `abpki-cli.service`; it reads the installed client configuration and owns the remote TLS connections.
 
 ## Installation prerequisites
 
@@ -16,6 +16,8 @@ Client binary: `abpki-cli`, connecting to `abpkid` over TLS.
 
 Both components must be installed before PKI installation begins.
 TrueLog provides logging and the underlying WORM filesystem at `/mnt/worm-storage`. Install and configure `autobricks-truelog-cli` on the PKI host for audit event submission. PKI delegates audit file management to TrueLog and DNS registration to Autobricks DNS.
+
+**Configure a retention period of at least 365 days when installing Autobricks TrueLog.** PKI initialization reads this setting and calculates the Intermediate CA default and maximum validity as `min(398, retention days - 7)`. A 365-day retention period yields a 358-day Intermediate CA lifetime.
 
 Follow the [Autobricks TrueLog server installation guide](https://github.com/pregene/autobricks-log/blob/main/TRUELOG.md#install-the-true-log-server).
 
@@ -27,12 +29,12 @@ Initial installation creates one Root CA and six Intermediate CAs: `database`, `
 
 ## Runtime
 
-[Build and tests](docs/build.md) · [Configuration and operation](docs/runtime.md) · [Service files and directories](FILES.md)
+[Package installation and removal](INSTALL.md) · [Build and tests](docs/build.md) · [Configuration and operation](docs/runtime.md) · [Service files and directories](FILES.md)
 
 ## Certificate services
 
 - Root CA and Intermediate CA management
-- Intermediate CA creation protected by the administrator password
+- Six default Intermediate CAs initialized at installation; additional CA creation is unavailable in 1.0
 - Server and client certificate issuance available to any connected client
 - Automatic DNS registration through `autobricks-dns` when a server certificate is issued
 - Certificate renewal
@@ -41,9 +43,11 @@ Initial installation creates one Root CA and six Intermediate CAs: `database`, `
 
 [Certificate services](docs/certificate-services.md) · [Certificate fields and purposes](CERTITFICATE.md)
 
+[Leaf creation](LEAF-CREATE.md) · [Leaf revocation](LEAF-REVOKE.md) · [Leaf renewal](LEAF-RENEW.md)
+
 ## Command-line client
 
-`abpki-cli` provides `create-ca`, `create`, `check`, `list-ca`, `list`, `download`, `revoke`, `renew`, `root`, and `chain`.
+`abpki-cli create-ca` is not implemented in 1.0. Available certificate commands include `create`, `check`, `list-ca`, `list`, `download`, `revoke`, `renew`, `root`, and `chain`.
 All downloaded certificates, private keys, and trust chains use PEM encoding. Each `{target}.tar.gz` download contains exactly three files: the certificate, its private key, and its trust chain. `GET https://<dns record name>/root` returns the Root CA certificate in PEM. `abpki-cli root` saves it as `root.crt`. The `chain` command downloads the Intermediate CA and Root CA certificates as `trust-chain`.
 
 [CLI commands](docs/cli.md)
@@ -52,11 +56,11 @@ All downloaded certificates, private keys, and trust chains use PEM encoding. Ea
 
 `abpkid` keeps its live SQLite database on mutable storage outside WORM. `autobricks-worm` provides appendable WORM storage for audit logs and generated certificates, and can also store SQLite backup copies. Certificates, encrypted private-key PEM copies, and backup files can be written directly through `/mnt/worm-storage`, through the WORM mount provided by the required `autobricks-truelog` installation.
 
-[Storage](docs/storage.md) · [SQLite notice](licenses/SQLite-PUBLIC-DOMAIN.md)
+[Storage](docs/storage.md) · [SQLite schema](DDL.md) · [Result and error codes](ERROR.md) · [SQLite notice](licenses/SQLite-PUBLIC-DOMAIN.md)
 
 ## Certificate validity
 
-The Root CA has no defined expiration. Intermediate CAs default to 398 days; server and client certificates default to 47 days. Creation supports custom validity within the issuer boundary. Renewal is available during the final seven days before expiration. `abpkid` renews Intermediate CAs internally; leaf holders check and renew their own certificates.
+The Root CA has no defined expiration. Intermediate CA default and maximum validity are `min(398, TrueLog retention days - 7)`, calculated during installation; server and client certificates default to 47 days. Creation supports custom validity within the issuer boundary. Renewal is available during the final seven days before expiration. `abpkid` renews Intermediate CAs internally; leaf holders check and renew their own certificates.
 
 [Validity and renewal](VALIDATION.md)
 
@@ -74,9 +78,17 @@ The Root CA has no defined expiration. Intermediate CAs default to 398 days; ser
 
 ## Key storage
 
-Version 1.0 uses software cryptography with P-256 keys and SHA-256 signatures. Encrypted private keys, their encryption password, and the salted administrator password hash are stored in SQLite. The service has no user accounts or user management.
+Version 1.0 uses software cryptography with P-256 keys and SHA-256 signatures. The storage design keeps encrypted private-key files on WORM and their paths, encryption password, and salted administrator password hash in SQLite. Current code still duplicates key PEM in SQLite; see the storage implementation boundary. The service has no user accounts or user management.
 
 [Key storage](docs/key-storage.md)
+
+## Planned features
+
+| Version | Planned feature |
+| --- | --- |
+| 1.1 | Additional Intermediate CA creation (`create-ca`) |
+| 1.3 | HSM integration |
+| 1.4 | TPM integration |
 
 ## Build version
 

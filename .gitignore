@@ -40,3 +40,7 @@ private-key.pem
 # Local binaries and installation packages
 /bin/
 /build/
+
+# Python installer bytecode
+__pycache__/
+*.pyc

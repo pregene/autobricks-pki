@@ -1,6 +1,8 @@
 # Command-line client
 
-`abpki-cli` connects to `abpkid` over the management TLS port (default 5545) on Linux. A client certificate is not required to connect.
+`abpki-cli` submits requests to the local `abpki-client` service through a Unix domain socket. The service connects to `abpkid` over management TLS (default port 5545), using settings saved during client installation. No client certificate or client private key is used for this TLS connection.
+
+`abpki-cli.service` runs the local daemon with `/etc/autobricks-pki-client/client.json`. CLI operations use `/run/autobricks-pki-client/client.sock`; only the daemon opens remote TLS connections. Both package types include this service.
 
 [Executable usage and request examples](runtime.md)
 
@@ -8,7 +10,7 @@
 
 | Command | Function |
 | --- | --- |
-| `abpki-cli create-ca ... --pass {password}` | Create an Intermediate CA; requires the administrator password. |
+| `abpki-cli create-ca ... --pass {password}` | Not implemented in 1.0; reserved for 1.1. |
 | `abpki-cli revoke ... --pass` | Revoke a certificate; requires the administrator password. |
 | `abpki-cli chain ...` | Download the Intermediate CA and Root CA certificates as `trust-chain`. |
 | `abpki-cli root ...` | Download the Root CA certificate as `root.crt`. |
@@ -19,11 +21,11 @@
 | `abpki-cli list ...` | List issued certificates. |
 | `abpki-cli download {fingerprint} {target}` | Download the certificate, its private key, and its trust chain as `{target}.tar.gz`, identified by the certificate fingerprint. |
 
-Server and client certificate creation is available to any connected client. Server certificate creation requires a `urn:autobricks:purpose:<purpose>` URI SAN; a missing, empty, or unrecognized purpose is rejected. See the [purpose catalog](../CERTITFICATE.md#server-purpose-uri-san) for accepted values. Intermediate CA creation requires the administrator password. Certificate revocation requires the administrator password. `abpkid` enforces these permissions when processing requests.
+Server and client certificate creation is available to any connected client. Server certificate creation requires exactly one `urn:autobricks:purpose:<purpose>` URI SAN; a missing, empty, unrecognized, or additional purpose is rejected. See the [purpose catalog](../CERTITFICATE.md#server-purpose-uri-san) for accepted values. Additional Intermediate CA creation returns `501 Not Implemented` in 1.0. Certificate revocation requires the administrator password. `abpkid` enforces these permissions when processing requests.
 
 ## Validity and renewal
 
-Leaf certificates default to 47 days; Intermediate CAs default to 398 days. Creation supports custom validity within the issuer boundary. Leaf holders periodically check expiration and request renewal when no more than seven days remain and the certificate has not expired. `abpkid` handles Intermediate CA renewal internally.
+Leaf certificates default to 47 days; Intermediate CAs use the installation-derived `min(398, TrueLog retention days - 7)` default and maximum. Creation supports shorter CA validity and custom leaf validity within the issuer boundary. Leaf holders periodically check expiration and request renewal when no more than seven days remain and the certificate has not expired. `abpkid` handles Intermediate CA renewal internally.
 
 [Validity and renewal rules](../VALIDATION.md)
 
@@ -60,13 +62,16 @@ For example, a target of `certificates/server` produces `certificates/server.tar
 ```mermaid
 sequenceDiagram
     participant CLI as abpki-cli
+    participant Local as abpki-client
     participant Server as abpkid
     participant File as Local filesystem
-    CLI->>Server: Request certificate by fingerprint over TLS
-    Server-->>CLI: Archive with certificate PEM, private key PEM, and trust-chain PEM
+    CLI->>Local: Request certificate through Unix socket
+    Local->>Server: Request certificate over TLS
+    Server-->>Local: Certificate archive
+    Local-->>CLI: Archive through Unix socket
     CLI->>File: Save as target.tar.gz
 ```
 
-Private-key downloads and leaf renewal require the certificate-specific access token returned by issuance. Set `ABPKI_ACCESS_TOKEN` for these commands. The service has no user accounts; `create-ca` and `revoke` verify the single administrator password.
+Private-key downloads and leaf renewal require the certificate-specific access token returned by issuance. The CLI saves issuance tokens in caller-owned credential records and includes the selected token in the Unix socket request for these commands. The service has no application user accounts; `revoke` receives the single administrator password through the Unix socket credential field and verify it on the server. Bare `--pass` prompts in the calling CLI; per-command credentials are not service environment variables.
 
 [Common Names, DNS naming, and uniqueness](../COMMON-NAME.md)

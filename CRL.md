@@ -80,3 +80,7 @@ CRL URLs embedded in existing leaf certificates continue to identify their appli
 [Certificate fields](CERTITFICATE.md) · [Intermediate CAs](INTERMEDIATE.md) · [Validity and renewal](VALIDATION.md)
 
 Intermediate renewal retains its CA key and subject. CN lookup selects the newest issuer certificate; fingerprint lookup retains the specified generation. Each generation's CRL includes applicable revocations across the shared CA signing identity.
+
+## CA handover revocation scope
+
+[Intermediate CA handover](INTERMEDIATE.md#intermediate-ca-renewal-handover) revokes old leaves as downloads complete and forces remaining old leaves and the old CA to retire after seven days. Leaf CRLs are signed by the Intermediate CA; the old Intermediate CA's own revocation requires a Root-signed CRL. Root CRL generation and distribution are not implemented by the current leaf CRL service. The handover deadline does not alter the fixed seven-day CRL validity period.

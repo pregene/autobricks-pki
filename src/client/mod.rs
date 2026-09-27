@@ -1,3 +1,5 @@
+pub mod credentials;
+pub mod daemon;
 use crate::{Result, transport::tls};
 use std::{
     io::{Read, Write},
@@ -70,13 +72,13 @@ pub fn request(
     stream.read_exact(&mut body)?;
     Ok(body)
 }
-pub fn segment(value: &str) -> String {
-    let mut u = url::Url::parse("https://localhost/").expect("static URL");
+pub fn segment(value: &str) -> Result<String> {
+    let mut u = url::Url::parse("https://localhost/")?;
     u.path_segments_mut()
-        .expect("static origin")
+        .map_err(|_| "cannot encode URL path segment")?
         .pop_if_empty()
         .push(value);
-    u.path().trim_start_matches('/').to_owned()
+    Ok(u.path().trim_start_matches('/').to_owned())
 }
 
 fn connect(
@@ -84,9 +86,13 @@ fn connect(
     trust: &[u8],
     port: u16,
 ) -> Result<rustls::StreamOwned<rustls::ClientConnection, TcpStream>> {
-    let host = url.host_str().ok_or("missing hostname")?;
+    let host = match url.host().ok_or("missing hostname")? {
+        url::Host::Domain(name) => name.to_owned(),
+        url::Host::Ipv4(ip) => ip.to_string(),
+        url::Host::Ipv6(ip) => ip.to_string(),
+    };
     let mut socket = None;
-    for address in (host, port).to_socket_addrs()? {
+    for address in (host.as_str(), port).to_socket_addrs()? {
         if let Ok(s) = TcpStream::connect_timeout(&address, Duration::from_secs(5)) {
             socket = Some(s);
             break;

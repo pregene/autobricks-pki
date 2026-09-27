@@ -5,7 +5,7 @@ use crate::{
     certificate::{
         crypto,
         profile::{LeafKind, LeafProfile},
-        validity::{INTERMEDIATE_DAYS, LEAF_DAYS, Validity},
+        validity::{LEAF_DAYS, Validity},
     },
     server::service::{Service, now, record},
     storage::database::Certificate,
@@ -19,13 +19,17 @@ impl Service {
         hostname: &str,
         ip: std::net::IpAddr,
         base_domain: &str,
+        retention_days: u32,
     ) -> Result<()> {
         let base_domain = crate::authority::domain::validate(base_domain)?;
+        let policy = super::validity::Policy::new(retention_days)?;
         if !self.db.all()?.is_empty() {
             return Err("database already initialized".into());
         }
         self.db.transaction(|| {
             password::set(&self.db, admin)?;
+            self.db
+                .set_setting("ca_validity_policy", &serde_json::to_vec(&policy)?)?;
             self.db.set_setting("base_domain", base_domain.as_bytes())?;
             let start = now();
             let validity = Validity {
@@ -39,7 +43,7 @@ impl Service {
             let root_cert = X509::from_pem(root.pem.as_bytes())?;
             let root_key = PKey::private_key_from_pem(root.key_pem.as_bytes())?;
             for name in DEFAULT_ISSUERS {
-                let validity = Validity::new(start, INTERMEDIATE_DAYS, Some(root.validity))?;
+                let validity = Validity::new(start, policy.intermediate_days, Some(root.validity))?;
                 let (cert, key) = crypto::ca(
                     &format!("{}.{base_domain}", name.name()),
                     Some((&root_cert, &root_key)),
@@ -73,44 +77,11 @@ impl Service {
         self.reconcile()?;
         Ok(())
     }
-    pub fn create_ca(&self, cn: &str, days: Option<u32>, admin: &[u8]) -> Result<Certificate> {
-        password::verify(&self.db, admin)?;
-        let normalized = cn.to_ascii_lowercase();
-        let cn = normalized.as_str();
-        let base_domain = String::from_utf8(
-            self.db
-                .setting("base_domain")?
-                .ok_or("missing installation baseDomain")?,
-        )?;
-        crate::certificate::common_name::intermediate(cn, &base_domain)?;
-        if cn.is_empty()
-            || cn.chars().any(char::is_control)
-            || self
-                .db
-                .all()?
-                .iter()
-                .any(|c| c.kind == "intermediate" && c.cn == cn)
-        {
-            return Err("invalid or duplicate Intermediate CA name".into());
-        }
-        let c = self.db.transaction(|| {
-            let root = self.root()?;
-            let validity = Validity::new(
-                now(),
-                days.unwrap_or(INTERMEDIATE_DAYS),
-                Some(root.validity),
-            )?;
-            let rc = X509::from_pem(root.pem.as_bytes())?;
-            let rk = PKey::private_key_from_pem(root.key_pem.as_bytes())?;
-            let (cert, key) = crypto::ca(cn, Some((&rc, &rk)), validity)?;
-            let c = record(cert, key, "intermediate", Some(root.fingerprint), validity)?;
-            self.db.insert(&c)?;
-            self.archive(&c, "intermediate-created")?;
-            self.publish_crl(&c, now())?;
-            Ok(c)
-        })?;
-        let _ = self.reconcile();
-        Ok(c)
+    pub fn create_ca(&self, _cn: &str, _days: Option<u32>, _admin: &[u8]) -> Result<Certificate> {
+        Err(
+            "Not implemented: additional Intermediate CA creation is unavailable in version 1.0"
+                .into(),
+        )
     }
     pub fn root(&self) -> Result<Certificate> {
         self.db
@@ -143,7 +114,14 @@ impl Service {
                     let root = self.root()?;
                     let rc = X509::from_pem(root.pem.as_bytes())?;
                     let rk = PKey::private_key_from_pem(root.key_pem.as_bytes())?;
-                    let validity = Validity::new(now(), INTERMEDIATE_DAYS, Some(root.validity))?;
+                    let validity = ca.validity.renewed(now(), root.validity)?;
+                    if validity.not_after - validity.not_before
+                        > i64::from(self.intermediate_days()?) * crate::certificate::validity::DAY
+                    {
+                        return Err(
+                            "stored Intermediate CA duration exceeds installation policy".into(),
+                        );
+                    }
                     let previous = X509::from_pem(ca.pem.as_bytes())?;
                     let (cert, key) = crypto::ca_with_subject(
                         &ca.cn,
@@ -169,7 +147,7 @@ impl Service {
                     .db
                     .get(current.issuer.as_deref().ok_or("missing TLS issuer")?)?;
                 let issuer = self.db.issuer(&old.cn)?;
-                profile.validity = Validity::new(now(), LEAF_DAYS, Some(issuer.validity))?;
+                profile.validity = current.validity.renewed(now(), issuer.validity)?;
                 self.db.transaction(|| {
                     let issued = self.create_inner(&issuer, &profile)?;
                     self.db

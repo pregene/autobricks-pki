@@ -61,8 +61,11 @@ pub fn read_frame<T: serde::de::DeserializeOwned>(
     stream: &mut impl Read,
     limit: usize,
 ) -> Result<T> {
+    let read_limit = u64::try_from(limit)?
+        .checked_add(1)
+        .ok_or("management frame limit is too large")?;
     let mut bytes = Vec::new();
-    BufReader::new(stream.take(limit as u64 + 1)).read_until(b'\n', &mut bytes)?;
+    BufReader::new(stream.take(read_limit)).read_until(b'\n', &mut bytes)?;
     if bytes.len() > limit || !bytes.ends_with(b"\n") {
         return Err("management frame is incomplete or exceeds its limit".into());
     }

@@ -1,0 +1,23 @@
+[Unit]
+Description=Autobricks PKI Client
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=autobricks-pki-cli
+Group=autobricks-pki-cli
+ExecStart=/usr/bin/abpki-cli daemon --config /etc/autobricks-pki-client/client.json
+ExecStartPost=+/usr/libexec/abpki-client-access
+RuntimeDirectory=autobricks-pki-client
+RuntimeDirectoryMode=0770
+UMask=0007
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

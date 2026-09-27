@@ -26,17 +26,17 @@ impl Service {
     }
     pub(crate) fn publish_crl(&self, issuer: &Certificate, timestamp: i64) -> Result<()> {
         let previous:i64=self.db.conn.query_row(
-            "SELECT COALESCE(MAX(crls.number),0) FROM crls JOIN certificates ON certificates.fingerprint=crls.issuer WHERE certificates.cn=? AND certificates.kind='intermediate'",
+            "SELECT COALESCE(MAX(crls.number),0) FROM crls JOIN certificates ON certificates.idx=crls.issuer WHERE certificates.cn=? AND certificates.kind='intermediate'",
             [&issuer.cn],|r|r.get(0))?;
         let number = previous.checked_add(1).ok_or("CRL number overflow")?;
         let pem = revocation::crl::generate(issuer, &self.db.all()?, timestamp, number)?;
-        self.db.conn.execute("INSERT INTO crls VALUES(?,?,?,?) ON CONFLICT(issuer) DO UPDATE SET pem=excluded.pem,next_update=excluded.next_update,number=excluded.number",params![issuer.fingerprint,pem,revocation::crl::next_update(timestamp)?,number])?;
+        self.db.conn.execute("INSERT INTO crls(issuer,pem,next_update,number) VALUES((SELECT idx FROM certificates WHERE fingerprint=?),?,?,?) ON CONFLICT(issuer) DO UPDATE SET pem=excluded.pem,next_update=excluded.next_update,number=excluded.number",params![issuer.fingerprint,pem,revocation::crl::next_update(timestamp)?,number])?;
         Ok(())
     }
     pub fn crl(&self, id: &str) -> Result<Vec<u8>> {
         let issuer = self.db.issuer(id)?;
         let (pem, next): (Vec<u8>, i64) = self.db.conn.query_row(
-            "SELECT pem,next_update FROM crls WHERE issuer=?",
+            "SELECT pem,next_update FROM crls WHERE issuer=(SELECT idx FROM certificates WHERE fingerprint=?)",
             [&issuer.fingerprint],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;

@@ -19,14 +19,7 @@ fn main() {
 }
 fn run() -> Result<()> {
     let args: Vec<_> = env::args().skip(1).collect();
-    if args == ["--version"] {
-        println!("abpkid {}", autobricks_pki::VERSION);
-        return Ok(());
-    }
-    if args.is_empty() || args == ["--help"] {
-        println!(
-            "Usage: abpkid init REGISTRATION_IP [BASE_DOMAIN] | serve | root\nConfiguration: ABPKI_DATABASE, ABPKI_WORM, ABPKI_ORIGIN, ABPKI_BIND, ABPKI_TLS_PORT, ABPKI_HTTPS_PORT, AUTOBRICKS_DNS_SOCKET, ABPKI_TRUELOG_CLI\nInitialization: ABPKI_ADMIN_PASSWORD"
-        );
+    if autobricks_pki::help::print_if_requested("abpkid", &args)? {
         return Ok(());
     }
     if !((args.len() == 2 || args.len() == 3) && args[0] == "init")
@@ -91,6 +84,7 @@ fn run() -> Result<()> {
             installation_domain
                 .as_deref()
                 .ok_or("missing installation baseDomain")?,
+            autobricks_pki::integration::retention::days(&c.truelog_config)?,
         )?;
         println!("PKI initialized");
         return Ok(());

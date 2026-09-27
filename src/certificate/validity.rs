@@ -1,7 +1,7 @@
 use crate::Result;
 use serde::{Deserialize, Serialize};
 pub const DAY: i64 = 86_400;
-pub const INTERMEDIATE_DAYS: u32 = 398;
+pub const INTERMEDIATE_MAX_DAYS: u32 = 398;
 pub const LEAF_DAYS: u32 = 47;
 pub const RENEWAL_SECONDS: i64 = 7 * DAY;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,6 +37,23 @@ impl Validity {
         }
         Ok(())
     }
+    pub fn renewed(self, not_before: i64, issuer: Self) -> Result<Self> {
+        self.validate(None)?;
+        let duration = self
+            .not_after
+            .checked_sub(self.not_before)
+            .ok_or("validity duration overflow")?;
+        let not_after = not_before
+            .checked_add(duration)
+            .ok_or("validity overflow")?;
+        let renewed = Self {
+            not_before,
+            not_after,
+        };
+        renewed.validate(Some(issuer))?;
+        Ok(renewed)
+    }
+
     pub fn renewable(self, now: i64) -> bool {
         now >= self.not_before
             && self

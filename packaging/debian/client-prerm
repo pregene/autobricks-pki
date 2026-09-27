@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+case "${1:-}" in
+    remove|deconfigure|upgrade)
+        if [ -d /run/systemd/system ]; then
+            systemctl stop abpki-cli.service
+            if [ "$1" != upgrade ]; then systemctl disable abpki-cli.service; fi
+        fi
+        ;;
+esac

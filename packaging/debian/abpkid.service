@@ -1,0 +1,26 @@
+[Unit]
+Description=Autobricks PKI Server 1.0
+After=network-online.target autobricks-dns.service ab-truelog.service ab-truelog-cli.service
+Wants=network-online.target
+Requires=autobricks-dns.service ab-truelog.service ab-truelog-cli.service
+RequiresMountsFor=/mnt/worm-storage
+
+[Service]
+Type=simple
+User=autobricks-pki
+Group=autobricks-pki
+EnvironmentFile=/etc/autobricks-pki/abpkid.env
+ExecStart=/usr/bin/abpkid serve
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/autobricks-pki /mnt/worm-storage
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

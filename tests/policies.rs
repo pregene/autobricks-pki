@@ -26,6 +26,19 @@ fn purposes_and_cidr() {
     assert!(purpose::validate(&[], true).is_err());
     assert!(purpose::validate(&["urn:autobricks:purpose:kms".into()], true).is_ok());
     assert!(purpose::validate(&["urn:autobricks:purpose:other".into()], true).is_err());
+    for values in [
+        vec![
+            "urn:autobricks:purpose:www".into(),
+            "urn:autobricks:purpose:api".into(),
+        ],
+        vec![
+            "urn:autobricks:purpose:www".into(),
+            "urn:autobricks:purpose:www".into(),
+        ],
+    ] {
+        assert!(purpose::validate(&values, true).is_err());
+        assert!(purpose::validate(&values, false).is_err());
+    }
     for uri in [
         "urn:autobricks:allowed-source-cidr:192.0.2.0/24",
         "urn:autobricks:database-server:rw:192.0.2.1/32",
@@ -52,4 +65,19 @@ fn urls() {
     );
     assert!(Distribution::new("http://pki.example.internal").is_err());
     assert!(Distribution::new("https://user:pass@pki.example.internal").is_err());
+}
+
+#[test]
+fn renewal_preserves_exact_duration_and_issuer_boundary() {
+    let issuer = Validity::new(0, 398, None).unwrap();
+    for seconds in [7 * DAY, 47 * DAY, DAY + 17] {
+        let old = Validity {
+            not_before: 0,
+            not_after: seconds,
+        };
+        let renewed = old.renewed(DAY, issuer).unwrap();
+        assert_eq!(renewed.not_before, DAY);
+        assert_eq!(renewed.not_after - renewed.not_before, seconds);
+        assert!(old.renewed(issuer.not_after - seconds + 1, issuer).is_err());
+    }
 }

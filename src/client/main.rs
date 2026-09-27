@@ -1,7 +1,7 @@
 use autobricks_pki::{Result, client};
 use std::{
     env,
-    fs::{self, OpenOptions},
+    fs::OpenOptions,
     io::{Read, Write},
     os::unix::fs::OpenOptionsExt,
 };
@@ -13,30 +13,35 @@ fn main() {
 }
 fn run() -> Result<()> {
     let mut args: Vec<_> = env::args().skip(1).collect();
-    if args == ["--version"] {
-        println!("abpki-cli {}", autobricks_pki::VERSION);
-        return Ok(());
-    }
-    if args.is_empty() || args == ["--help"] {
-        println!(
-            "Usage: abpki-cli COMMAND [ARGUMENTS]\nCommands: create, create-ca --pass [PASSWORD], revoke FINGERPRINT --pass [PASSWORD], renew FINGERPRINT, check FINGERPRINT, list-ca, list, download FINGERPRINT TARGET, root, chain ISSUER\ncreate and create-ca read JSON from stdin.\nConnection: ABPKI_SERVER, ABPKI_TRUST_FILE, ABPKI_HTTPS_PORT\nCredentials: ABPKI_ADMIN_PASSWORD, ABPKI_ACCESS_TOKEN"
-        );
+    if autobricks_pki::help::print_if_requested("abpki-cli", &args)? {
         return Ok(());
     }
     let command = args.remove(0);
+    if command == "create-ca" {
+        return Err(
+            "Not implemented: additional Intermediate CA creation is unavailable in version 1.0"
+                .into(),
+        );
+    }
+    if command == "daemon" {
+        if args.len() != 2 || args[0] != "--config" {
+            return Err("daemon requires --config PATH".into());
+        }
+        return client::daemon::serve(std::path::Path::new(&args[1]));
+    }
     let mut admin = None;
     if let Some(pos) = args.iter().position(|a| a == "--pass") {
         args.remove(pos);
         admin = Some(if pos < args.len() {
             args.remove(pos)
         } else {
-            env::var("ABPKI_ADMIN_PASSWORD")?
+            client::credentials::prompt()?
         });
     }
     if matches!(command.as_str(), "create-ca" | "revoke") && admin.is_none() {
         return Err("--pass is required for this command".into());
     }
-    let token = env::var("ABPKI_ACCESS_TOKEN").ok();
+
     let mut method = "GET";
     let mut body = vec![];
     let mut output = None;
@@ -47,13 +52,13 @@ fn run() -> Result<()> {
         }
         "chain" if args.len() == 1 => {
             output = Some("trust-chain".to_owned());
-            format!("/api/chain/{}", client::segment(&args[0]))
+            format!("/api/chain/{}", client::segment(&args[0])?)
         }
         "list-ca" | "list" if args.is_empty() => format!("/api/{command}"),
-        "check" if args.len() == 1 => format!("/api/check/{}", client::segment(&args[0])),
+        "check" if args.len() == 1 => format!("/api/check/{}", client::segment(&args[0])?),
         "download" if args.len() == 2 => {
             output = Some(format!("{}.tar.gz", args[1]));
-            format!("/api/download/{}", client::segment(&args[0]))
+            format!("/api/download/{}", client::segment(&args[0])?)
         }
         "create" | "create-ca" if args.is_empty() => {
             method = "POST";
@@ -70,30 +75,38 @@ fn run() -> Result<()> {
         }
         _ => return Err("invalid command or arguments; see --help".into()),
     };
-    let credential = if matches!(command.as_str(), "create-ca" | "revoke") {
-        admin.as_deref()
+    let credential = if command == "revoke" {
+        admin
     } else if matches!(command.as_str(), "download" | "renew") {
-        Some(token.as_deref().ok_or("ABPKI_ACCESS_TOKEN is required")?)
+        Some(client::credentials::load(&args[0])?)
     } else {
         None
     };
-    let origin = env::var("ABPKI_SERVER")?;
-    let trust = fs::read(env::var("ABPKI_TRUST_FILE")?)?;
-    let response = if command == "root" {
-        let port = env::var("ABPKI_HTTPS_PORT")
-            .unwrap_or_else(|_| "5546".into())
-            .parse()?;
-        client::request(
-            &client::public_origin(&origin, port)?,
-            &trust,
-            method,
-            &path,
-            &body,
+    let socket = env::var("ABPKI_SOCKET").unwrap_or_else(|_| client::daemon::SOCKET.into());
+    let mut response = client::daemon::call(
+        std::path::Path::new(&socket),
+        &autobricks_pki::transport::management::Message {
+            method: method.into(),
+            path,
+            content_type: "application/json".into(),
             credential,
-        )?
-    } else {
-        client::management_request(&origin, &trust, method, &path, &body, credential)?
-    };
+            body,
+        },
+    )?;
+    if matches!(command.as_str(), "create" | "renew")
+        && let Err(error) = client::credentials::save_response(&response)
+    {
+        // Preserve the successful issuance response for credential recovery.
+        std::io::stdout().write_all(&response)?;
+        return Err(format!("certificate issued but local credential save failed: {error}").into());
+    }
+    if matches!(command.as_str(), "create" | "renew") {
+        let mut public: serde_json::Value = serde_json::from_slice(&response)?;
+        if let Some(object) = public.as_object_mut() {
+            object.remove("download_token");
+        }
+        response = serde_json::to_vec(&public)?;
+    }
     if let Some(path) = output {
         let mut file = OpenOptions::new()
             .write(true)

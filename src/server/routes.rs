@@ -50,6 +50,13 @@ pub fn dispatch(service: &Service, r: Request) -> Response {
     match route(service,&r){Ok(v)=>v,Err(_)=>Response{status:"400 Bad Request",content_type:"application/json",body:br#"{"error":"Request rejected; check parameters, permissions, validity, and service availability."}"#.to_vec()}}
 }
 fn route(s: &Service, r: &Request) -> Result<Response> {
+    if r.method == "POST" && r.path == "/api/create-ca" {
+        return Ok(Response {
+            status: "501 Not Implemented",
+            content_type: "application/json",
+            body: br#"{"error":"Not implemented: additional Intermediate CA creation is unavailable in version 1.0"}"#.to_vec(),
+        });
+    }
     if r.path == "/ocsp/" {
         if r.method != "POST" {
             return Ok(Response {
@@ -130,25 +137,24 @@ fn route(s: &Service, r: &Request) -> Result<Response> {
         if r.path == "/api/create" {
             return json_response(s.create(serde_json::from_slice::<Create>(&r.body)?)?);
         }
+        if r.path == "/api/renew" {
+            #[derive(serde::Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct RenewalRequest {
+                fingerprint: String,
+            }
+            let request: RenewalRequest = serde_json::from_slice(&r.body)?;
+            return json_response(s.renew(&request.fingerprint, bearer(r))?);
+        }
         let body: Value = serde_json::from_slice(&r.body)?;
         let text = |key: &str| {
             body.get(key)
                 .and_then(Value::as_str)
                 .ok_or_else(|| crate::Error::from("missing request field"))
         };
-        let days = match body.get("days") {
-            None => None,
-            Some(v) => Some(u32::try_from(v.as_u64().ok_or("invalid days")?)?),
-        };
-        if r.path == "/api/create-ca" {
-            return json_response(s.create_ca(text("cn")?, days, bearer(r).as_bytes())?);
-        }
         if r.path == "/api/revoke" {
             s.revoke(text("fingerprint")?, bearer(r).as_bytes())?;
             return json_response(json!({"status":"REVOKED"}));
-        }
-        if r.path == "/api/renew" {
-            return json_response(s.renew(text("fingerprint")?, bearer(r), days)?);
         }
     }
     Ok(Response {
