@@ -71,5 +71,33 @@ class ClientSetupTests(unittest.TestCase):
         self.assertEqual(self.trust.read_bytes(), b'remote CA')
 
 
+class EndpointReadinessTests(unittest.TestCase):
+    def test_delayed_listener_is_retried(self):
+        with patch.object(client.time, 'sleep'), patch.object(client.time, 'monotonic', return_value=0):
+            calls = []
+            def connect(timeout):
+                calls.append(timeout)
+                if len(calls) < 3:
+                    raise ConnectionRefusedError(111, 'Connection refused')
+                return 'connected'
+            self.assertEqual(client.wait_for_endpoint('192.0.2.10', 5545, connect, 'TLS connection'), 'connected')
+            self.assertEqual(len(calls), 3)
+
+    def test_timeout_names_endpoint(self):
+        with patch.object(client.time, 'monotonic', side_effect=[0, 0, 31]):
+            def connect(timeout):
+                raise ConnectionRefusedError(111, 'Connection refused')
+            with self.assertRaisesRegex(ValueError, '192.0.2.10:5545.*30 seconds'):
+                client.wait_for_endpoint('192.0.2.10', 5545, connect, 'TLS connection')
+
+    def test_certificate_failure_is_not_retried(self):
+        with patch.object(client.time, 'sleep') as sleep:
+            def connect(timeout):
+                raise client.ssl.SSLCertVerificationError('hostname mismatch')
+            with self.assertRaisesRegex(ValueError, 'certificate verification failed'):
+                client.wait_for_endpoint('pki.example.internal', 5545, connect, 'TLS connection')
+            sleep.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()

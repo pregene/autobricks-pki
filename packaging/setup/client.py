@@ -9,6 +9,7 @@ import socket
 import ssl
 import subprocess
 import tempfile
+import time
 
 CONFIG = Path('/etc/autobricks-pki-client')
 TRUST = Path('/usr/local/share/ca-certificates/autobricks-pki-client.crt')
@@ -35,25 +36,46 @@ def write_config(path, data, mode=0o600):
             os.unlink(temporary)
 
 
+def wait_for_endpoint(host, port, operation, action, timeout=30):
+    deadline = time.monotonic() + timeout
+    target = f'[{host}]:{port}' if ':' in host else f'{host}:{port}'
+    while True:
+        remaining = max(0.1, deadline - time.monotonic())
+        try:
+            return operation(min(5, remaining))
+        except ssl.SSLCertVerificationError as error:
+            raise ValueError(f'{action} failed at {target}: certificate verification failed: {error}') from error
+        except (ConnectionRefusedError, ConnectionResetError, TimeoutError) as error:
+            if time.monotonic() >= deadline:
+                raise ValueError(f'{action} failed at {target}: server not ready after {timeout} seconds ({error})') from error
+            time.sleep(min(0.25, max(0, deadline - time.monotonic())))
+        except (OSError, http.client.HTTPException, ValueError) as error:
+            raise ValueError(f'{action} failed at {target}: {error}') from error
+
+
 def handshake(host, port, context):
-    with socket.create_connection((host, port), timeout=10) as connection:
-        with context.wrap_socket(connection, server_hostname=host):
-            pass
+    def connect(timeout):
+        with socket.create_connection((host, port), timeout=timeout) as connection:
+            with context.wrap_socket(connection, server_hostname=host):
+                pass
+    wait_for_endpoint(host, port, connect, 'TLS connection')
 
 
 def retrieve(host, port):
-    # Only first-use Root retrieval bypasses existing trust. All subsequent TLS verifies.
-    connection = http.client.HTTPSConnection(host, port, timeout=10,
-                                            context=ssl._create_unverified_context())
-    try:
-        connection.request('GET', '/root')
-        response = connection.getresponse()
-        data = response.read(1024 * 1024 + 1)
-        if response.status != 200 or len(data) > 1024 * 1024:
-            raise ValueError('Root CA download failed')
-        return data
-    finally:
-        connection.close()
+    def download(timeout):
+        # Only first-use Root retrieval bypasses existing trust. All subsequent TLS verifies.
+        connection = http.client.HTTPSConnection(host, port, timeout=timeout,
+                                                context=ssl._create_unverified_context())
+        try:
+            connection.request('GET', '/root')
+            response = connection.getresponse()
+            data = response.read(1024 * 1024 + 1)
+            if response.status != 200 or len(data) > 1024 * 1024:
+                raise ValueError(f'Root CA download returned HTTP {response.status} or exceeded the size limit')
+            return data
+        finally:
+            connection.close()
+    return wait_for_endpoint(host, port, download, 'Root CA download')
 
 
 def provision(host, port, https_port, report, root=None):

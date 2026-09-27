@@ -35,7 +35,7 @@ Or, for a client-only host:
 sudo apt install ./build/autobricks-pki-cli-<version>-<os>-<os-version>-<architecture>.deb
 ```
 
-The screen collects the inputs described in [PACKAGE.md](PACKAGE.md). Tab moves between fields, Left/Right and Home/End move the text cursor, and Install starts provisioning. Validation errors remain on the settings screen. Backend failures display an error and do not report installation success.
+The screen collects the inputs described in [PACKAGE.md](PACKAGE.md). Tab moves between fields, Left/Right and Home/End move the text cursor, and Install starts provisioning. Validation errors remain on the settings screen. Backend failures display an error and do not report installation success. TLS and Root download connections retry temporary connection failures for up to 30 seconds while endpoints start. Certificate-verification failures stop immediately. Failed connection messages include the host and port and remain visible in dpkg output after the screen closes.
 
 ## Server and included client
 

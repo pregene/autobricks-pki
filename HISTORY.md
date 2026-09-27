@@ -1,5 +1,15 @@
 # Development history
 
+## 1.0.072 — 2026-09-27
+
+- Revalidated the installation readiness fix with the distribution OpenSSL panic gate: formatting, production Clippy checks, 33 Rust tests, and 10 installer tests passed.
+
+## 1.0.070 — 2026-09-27
+
+- Added bounded TLS and Root download readiness retries after service startup, preserving immediate certificate-verification failure handling.
+- Included connection targets in installation failures and preserved the backend error in dpkg output after closing curses.
+- Verified delayed-listener, timeout-target, and certificate-failure behavior with installer regression tests.
+
 ## 1.0.069 — 2026-09-27
 
 - Built and inspected both Ubuntu 22.04 amd64 Debian packages, shared screen payloads, maintainer-script syntax, binary help, and distribution OpenSSL linkage.

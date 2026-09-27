@@ -80,14 +80,14 @@ def main():
         def screen(stdscr):
             ui = Preview(stdscr, version, mode, server_install if mode == 'server' else client_install, initial)
             ui.run()
-            return ui.completed
-        success = curses.wrapper(screen)
+            return ui.completed, ui.failure
+        success, failure = curses.wrapper(screen)
     finally:
         for fd, duplicate in enumerate(saved):
             os.dup2(duplicate, fd)
             os.close(duplicate)
     if not success:
-        raise SystemExit('Package configuration was not completed.')
+        raise SystemExit(f'Package configuration failed: {failure}' if failure else 'Package configuration was cancelled.')
 
 
 if __name__ == '__main__':
