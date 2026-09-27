@@ -115,8 +115,10 @@ impl Fixture {
         )
         .unwrap();
         let connection = rusqlite::Connection::open(self._temp.path().join("pki.sqlite")).unwrap();
-        connection.execute("INSERT INTO crls(issuer,pem,next_update,number) VALUES((SELECT idx FROM certificates WHERE fingerprint=?),?,?,1)",
-            rusqlite::params![record.fingerprint, crl, autobricks_pki::revocation::crl::next_update(timestamp).unwrap()]).unwrap();
+        let crl_path = format!("crl/{}/test.pem", record.fingerprint);
+        self.service.worm.write_once(&crl_path, &crl).unwrap();
+        connection.execute("INSERT INTO crls(issuer,crl_path,next_update,number) VALUES((SELECT idx FROM certificates WHERE fingerprint=?),?,?,1)",
+            rusqlite::params![record.fingerprint, crl_path, autobricks_pki::revocation::crl::next_update(timestamp).unwrap()]).unwrap();
         record
     }
     fn issue(&self, days: u32) -> autobricks_pki::server::service::Issued {
@@ -567,6 +569,22 @@ fn binaries_and_openssl_ocsp_interoperate() {
     );
     let created: serde_json::Value = serde_json::from_slice(&created.stdout).unwrap();
     let id = created["certificate"]["fingerprint"].as_str().unwrap();
+    let info = cli(&["info", id], None, None);
+    assert!(info.status.success());
+    let text = String::from_utf8(info.stdout).unwrap();
+    for field in [
+        "Certificate:",
+        "Subject:",
+        "Issuer:",
+        "Validity",
+        "X509v3 Subject Alternative Name",
+        "urn:autobricks:purpose:www",
+    ] {
+        assert!(text.contains(field), "missing {field}");
+    }
+    assert!(!text.contains("PRIVATE KEY"));
+    assert!(!text.contains("BEGIN CERTIFICATE"));
+    assert!(!cli(&["info", &"0".repeat(64)], None, None).status.success());
     assert!(created.get("download_token").is_none());
     let token = std::fs::read_to_string(directory.join(".abpki").join(id)).unwrap();
     assert!(
@@ -735,7 +753,7 @@ fn worm_archives_keys_with_unique_paths_and_truelog_owns_audits() {
             0o600
         );
     }
-    assert_eq!(std::fs::read_dir(&worm).unwrap().count(), 3);
+    assert_eq!(std::fs::read_dir(&worm).unwrap().count(), 4);
     for ca in f
         .service
         .db
@@ -1084,4 +1102,296 @@ fn additional_ca_creation_is_unavailable_without_side_effects() {
             .unwrap()
             .contains("Not implemented")
     );
+}
+
+#[test]
+fn hourly_scheduler_renews_due_ca_and_persists_attempt() {
+    let f = Fixture::new();
+    let old = f.seed_intermediate("scheduled", 6);
+    let timestamp = now();
+    assert!(f.service.run_hourly_renewal(timestamp).unwrap());
+    let all = f.service.db.all().unwrap();
+    let generations: Vec<_> = all.iter().filter(|c| c.cn == old.cn).collect();
+    assert_eq!(generations.len(), 2);
+    assert_eq!(
+        generations[1].validity.not_after - generations[1].validity.not_before,
+        old.validity.not_after - old.validity.not_before
+    );
+    assert!(!f.service.run_hourly_renewal(timestamp + 3599).unwrap());
+    let reopened = Database::open(
+        &f._temp.path().join("pki.sqlite"),
+        &f._temp.path().join("worm"),
+    )
+    .unwrap();
+    let saved: i64 = serde_json::from_slice(
+        &reopened
+            .setting("renewal_scheduler_last_attempt")
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(saved, timestamp);
+    assert!(!autobricks_pki::server::scheduler::due(
+        Some(saved),
+        timestamp + 1
+    ));
+    assert_eq!(
+        f.service
+            .db
+            .all()
+            .unwrap()
+            .iter()
+            .filter(|c| c.cn == old.cn)
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn crl_failure_never_rolls_back_revocation_and_publication_retries() {
+    let f = Fixture::new();
+    let issued = f.issue(47);
+    let issuer = issued.certificate.issuer.as_deref().unwrap();
+    let connection = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    connection.execute_batch("CREATE TRIGGER fail_crl BEFORE UPDATE ON crls BEGIN SELECT RAISE(ABORT,'simulated publication failure'); END;").unwrap();
+    f.service
+        .revoke(&issued.certificate.fingerprint, ADMIN)
+        .unwrap();
+    let state: String = connection
+        .query_row(
+            "SELECT valid FROM certificates WHERE fingerprint=?",
+            [&issued.certificate.fingerprint],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(state, "REVOKED");
+    assert!(
+        f.service
+            .db
+            .get(&issued.certificate.fingerprint)
+            .unwrap()
+            .revoked_at
+            .is_some()
+    );
+    assert!(
+        f.service
+            .db
+            .pending()
+            .unwrap()
+            .iter()
+            .any(|(_, kind, _)| kind == "crl")
+    );
+    assert!(f.service.crl(issuer).is_err());
+    let leaf = X509::from_pem(issued.certificate.pem.as_bytes()).unwrap();
+    let ca = X509::from_pem(f.service.db.get(issuer).unwrap().pem.as_bytes()).unwrap();
+    let query = request(&leaf, &ca);
+    let response = OcspResponse::from_der(
+        &ocsp::respond(&query, &f.service.db.all().unwrap(), now()).unwrap(),
+    )
+    .unwrap();
+    let cert_id = OcspCertId::from_cert(MessageDigest::sha1(), &leaf, &ca).unwrap();
+    assert_eq!(
+        response
+            .basic()
+            .unwrap()
+            .find_status(&cert_id)
+            .unwrap()
+            .status,
+        OcspCertStatus::REVOKED
+    );
+
+    connection.execute_batch("DROP TRIGGER fail_crl;").unwrap();
+    f.service.reconcile().unwrap();
+    let crl = X509Crl::from_pem(&f.service.crl(issuer).unwrap()).unwrap();
+    assert_eq!(crl.get_revoked().unwrap().len(), 1);
+    assert!(
+        !f.service
+            .db
+            .pending()
+            .unwrap()
+            .iter()
+            .any(|(_, kind, _)| kind == "crl")
+    );
+}
+
+#[test]
+fn crl_download_reads_published_worm_file_without_signing_or_database_writes() {
+    let f = Fixture::new();
+    let issuer = f.service.db.issuer("www.autobricks.internal").unwrap();
+    let connection = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    let (path, number): (String,i64) = connection.query_row("SELECT crl_path,number FROM crls WHERE issuer=(SELECT idx FROM certificates WHERE fingerprint=?)", [&issuer.fingerprint], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
+    let expected = std::fs::read(f._temp.path().join("worm").join(&path)).unwrap();
+    assert_eq!(number, 1);
+    let initial_crl = X509Crl::from_pem(&expected).unwrap();
+    assert!(
+        initial_crl
+            .get_revoked()
+            .is_none_or(|entries| entries.is_empty())
+    );
+
+    connection
+        .execute("DELETE FROM settings WHERE name='private_key_password'", [])
+        .unwrap();
+    assert_eq!(f.service.crl(&issuer.fingerprint).unwrap(), expected);
+    assert_eq!(f.service.crl(&issuer.cn).unwrap(), expected);
+    connection.execute("UPDATE crls SET next_update=0 WHERE issuer=(SELECT idx FROM certificates WHERE fingerprint=?)", [&issuer.fingerprint]).unwrap();
+    assert!(f.service.crl(&issuer.fingerprint).is_err());
+    let after: i64 = connection.query_row("SELECT number FROM crls WHERE issuer=(SELECT idx FROM certificates WHERE fingerprint=?)", [&issuer.fingerprint], |row| row.get(0)).unwrap();
+    assert_eq!(after, number);
+}
+
+#[test]
+fn scheduler_replaces_expired_crl_and_preserves_previous_worm_file() {
+    let f = Fixture::new();
+    let issuer = f.service.db.issuer("www.autobricks.internal").unwrap();
+    let connection = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    let old: String = connection.query_row("SELECT crl_path FROM crls WHERE issuer=(SELECT idx FROM certificates WHERE fingerprint=?)", [&issuer.fingerprint], |row| row.get(0)).unwrap();
+    let old_bytes = std::fs::read(f._temp.path().join("worm").join(&old)).unwrap();
+    connection.execute("UPDATE crls SET next_update=0 WHERE issuer=(SELECT idx FROM certificates WHERE fingerprint=?)", [&issuer.fingerprint]).unwrap();
+    f.service.refresh_status_and_deliver().unwrap();
+    let new: String = connection.query_row("SELECT crl_path FROM crls WHERE issuer=(SELECT idx FROM certificates WHERE fingerprint=?)", [&issuer.fingerprint], |row| row.get(0)).unwrap();
+    assert_ne!(old, new);
+    assert_eq!(
+        std::fs::read(f._temp.path().join("worm").join(old)).unwrap(),
+        old_bytes
+    );
+    assert!(X509Crl::from_pem(&f.service.crl(&issuer.fingerprint).unwrap()).is_ok());
+}
+
+#[test]
+fn ca_lineage_keeps_crl_numbers_and_revocations_across_generations() {
+    let f = Fixture::new();
+    let old = f.seed_intermediate("continuous", 6);
+    let issue = |cn: &str, issuer: &str| {
+        f.service
+            .create(Create {
+                issuer: issuer.into(),
+                profile: LeafProfile {
+                    kind: LeafKind::Client,
+                    common_name: cn.into(),
+                    dns_names: vec![],
+                    ip_addresses: vec![],
+                    uri_sans: vec![],
+                    validity: Validity::new(now(), 5, None).unwrap(),
+                },
+            })
+            .unwrap()
+    };
+    let first = issue("before", &old.fingerprint);
+    f.service
+        .revoke(&first.certificate.fingerprint, ADMIN)
+        .unwrap();
+    let connection = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    let number = |fingerprint: &str| {
+        connection.query_row("SELECT number FROM crls WHERE issuer=(SELECT idx FROM certificates WHERE fingerprint=?)", [fingerprint], |row| row.get::<_,i64>(0)).unwrap()
+    };
+    let previous = number(&old.fingerprint);
+    f.service.maintain().unwrap();
+    let generations = f.service.db.ca_lineage(&old.fingerprint).unwrap();
+    assert_eq!(generations.len(), 2);
+    let new = &generations[1];
+    assert!(number(new) > previous);
+    assert_eq!(number(new), number(&old.fingerprint));
+    assert_eq!(
+        f.service.crl(new).unwrap(),
+        f.service.crl(&old.fingerprint).unwrap()
+    );
+    assert_eq!(
+        X509Crl::from_pem(&f.service.crl(new).unwrap())
+            .unwrap()
+            .get_revoked()
+            .unwrap()
+            .len(),
+        1
+    );
+    let second = issue("after", new);
+    f.service
+        .revoke(&second.certificate.fingerprint, ADMIN)
+        .unwrap();
+    assert_eq!(
+        X509Crl::from_pem(&f.service.crl(&old.fingerprint).unwrap())
+            .unwrap()
+            .get_revoked()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(f.service.crl(new).unwrap(), f.service.crl(&old.cn).unwrap());
+    let unrelated = f.seed_intermediate("continuous", 6);
+    assert_eq!(
+        f.service.db.ca_lineage(&unrelated.fingerprint).unwrap(),
+        vec![unrelated.fingerprint]
+    );
+    assert_eq!(f.service.db.ca_lineage(&old.fingerprint).unwrap().len(), 2);
+}
+
+#[test]
+fn database_contains_no_pem_in_any_table_after_issue_revoke_and_renewal() {
+    let f = Fixture::new();
+    let leaf = f.issue(47);
+    f.service
+        .revoke(&leaf.certificate.fingerprint, ADMIN)
+        .unwrap();
+    f.seed_intermediate("db-check", 6);
+    f.service.maintain().unwrap();
+    let connection = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    let tables: Vec<String> = connection
+        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    for table in tables {
+        let mut query = connection
+            .prepare(&format!("SELECT * FROM \"{}\"", table.replace('"', "\"\"")))
+            .unwrap();
+        let count = query.column_count();
+        let mut rows = query.query([]).unwrap();
+        while let Some(row) = rows.next().unwrap() {
+            for i in 0..count {
+                use rusqlite::types::ValueRef;
+                match row.get_ref(i).unwrap() {
+                    ValueRef::Text(bytes) | ValueRef::Blob(bytes) => assert!(
+                        !bytes
+                            .windows(b"-----BEGIN ".len())
+                            .any(|w| w == b"-----BEGIN "),
+                        "PEM in {table}"
+                    ),
+                    _ => (),
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn certificate_info_reads_only_public_artifact_and_handles_missing_fingerprint() {
+    let f = Fixture::new();
+    let ids: Vec<_> = f
+        .service
+        .db
+        .all()
+        .unwrap()
+        .into_iter()
+        .map(|c| c.fingerprint)
+        .collect();
+    let connection = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    connection
+        .execute("DELETE FROM settings WHERE name='private_key_password'", [])
+        .unwrap();
+    for id in ids {
+        let output = f.service.certificate_info(&id).unwrap().unwrap();
+        let text = String::from_utf8(output).unwrap();
+        assert!(text.contains("Certificate:"));
+        assert!(text.contains(&id));
+        assert!(!text.contains("PRIVATE KEY"));
+    }
+    assert!(
+        f.service
+            .certificate_info(&"0".repeat(64))
+            .unwrap()
+            .is_none()
+    );
+    assert!(f.service.certificate_info("../invalid").is_err());
 }

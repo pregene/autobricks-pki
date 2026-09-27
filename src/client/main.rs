@@ -55,7 +55,9 @@ fn run() -> Result<()> {
             format!("/api/chain/{}", client::segment(&args[0])?)
         }
         "list-ca" | "list" if args.is_empty() => format!("/api/{command}"),
-        "check" if args.len() == 1 => format!("/api/check/{}", client::segment(&args[0])?),
+        "check" | "info" if args.len() == 1 => {
+            format!("/api/{command}/{}", client::segment(&args[0])?)
+        }
         "download" if args.len() == 2 => {
             output = Some(format!("{}.tar.gz", args[1]));
             format!("/api/download/{}", client::segment(&args[0])?)

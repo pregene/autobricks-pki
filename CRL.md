@@ -39,6 +39,8 @@ Extension definition: [RFC 5280, Section 4.2.1.13 — CRL Distribution Points](h
 
 ## Validity and publication
 
+CRLs are stored under `ABPKI_WORM/crl/<issuer-fingerprint>/<number>-<sha256>.pem`. SQLite stores only `crl_path`, the issuer key, number, and update deadline. New files are written before publishing their paths; older files remain under WORM retention. Initial Intermediate CA creation publishes an empty CRL with number 1. Renewing an existing CA continues its lineage number sequence without resetting it. Scheduled expiration refresh and committed revocation publish replacement files.
+
 Every CRL has a fixed validity period of **7 days (168 hours)**. This period is not configurable through creation parameters, CLI options, or server configuration.
 
 | Field or event | Behavior |
@@ -49,6 +51,8 @@ Every CRL has a fixed validity period of **7 days (168 hours)**. This period is 
 | Certificate revocation | `abpkid` immediately generates, signs, and publishes an updated CRL for the issuing Intermediate CA, including the revoked certificate. It does not wait for the scheduled refresh. |
 
 Each replacement CRL receives its own issuance time and a new fixed seven-day validity period. Both the CN-based and fingerprint-based URLs for the same issuer serve the updated CRL. An update retains all revocation entries still required within that CRL's scope; it is not a list of only the latest revocation.
+
+Revocation state and the pending CRL update are committed together before signing. CRL generation failure never reverses revocation. Pending publication is retried every 30 seconds, including after restart. Downloads only read the current published WORM file. Missing, expired, or pending CRLs produce an error without creating a CRL during the request.
 
 Immediate publication updates the server's downloadable CRL. It does not push the replacement into validators that have already cached an earlier CRL.
 
@@ -79,7 +83,7 @@ CRL URLs embedded in existing leaf certificates continue to identify their appli
 
 [Certificate fields](CERTITFICATE.md) · [Intermediate CAs](INTERMEDIATE.md) · [Validity and renewal](VALIDATION.md)
 
-Intermediate renewal retains its CA key and subject. CN lookup selects the newest issuer certificate; fingerprint lookup retains the specified generation. Each generation's CRL includes applicable revocations across the shared CA signing identity.
+Intermediate renewal retains its CA key and subject. CN lookup selects the newest issuer certificate; fingerprint lookup retains the specified generation. Generations are connected through `previous_certificate_idx`. Publication includes revoked leaves from the entire linked lineage and advances one shared number sequence. Every generation points to the latest signed WORM CRL, so old fingerprint URLs and the CN URL retain revocation continuity. An unrelated certificate with the same CN is not included. Subject and public key equality are checked before sharing a CRL across generations.
 
 ## CA handover revocation scope
 

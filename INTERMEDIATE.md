@@ -76,7 +76,7 @@ Root CA certificates are downloaded with `root`. An issued certificate's Interme
 
 ## Intermediate CA renewal handover
 
-This section specifies coordinated CA and leaf handover. Current runtime renewal creates a replacement CA but does not yet persist handover state, track leaf completion, or enforce the seven-day retirement deadline.
+This section specifies coordinated CA and leaf handover. Runtime renewal records the replacement CA predecessor and maintains CRL continuity across the linked generations. It does not yet persist handover state, track leaf completion, or enforce the seven-day retirement deadline.
 
 An Intermediate CA renewal affects the exact old certificate generation and all leaf certificates issued by that generation. Determine membership through `intermediate_leaf.intermediate_idx` and join its `leaf_idx` to `certificates.idx`. The new Intermediate CA is `VALID`; the old CA and its non-revoked leaves become `SUPERSEDED`. Already revoked leaves remain `REVOKED`.
 
@@ -110,7 +110,7 @@ During the waiting period, failed or interrupted downloads leave the old leaf te
 
 ### Processing and persistence
 
-1. Within the CA renewal transaction, create the replacement CA with its numeric predecessor reference, mark the old CA and non-revoked dependent leaves `SUPERSEDED`, and record the original CA transition time. Queue the CA renewal audit event and artifact delivery.
+1. Within the CA renewal transaction, create the replacement CA with its numeric predecessor reference, mark the old CA and non-revoked dependent leaves `SUPERSEDED`, and record the original CA transition time. Write the CA artifacts directly to WORM and queue the CA renewal audit event.
 2. Leaf holders request renewal with their existing token. Resolve the replacement CA and issue a leaf whose `previous_certificate_idx` points to the exact old leaf. Existing leaf validity bounds still apply. Because a leaf cannot outlive its old issuer, an unexpired leaf is already within its final seven days when its issuer enters scheduled renewal.
 3. On authenticated replacement download confirmation, revoke the old leaf and refresh the applicable leaf CRLs. In the same serialized state evaluation, query `intermediate_leaf` for the old CA and check whether any linked leaf remains non-revoked.
 4. If none remain, revoke the old CA. Otherwise retain it until the fixed deadline.

@@ -1,7 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
-[[ -n ${AUTOBRICKS_PKI_VERSION:-} ]] || { echo 'Use scripts/build/run.sh scripts/package/build.sh' >&2; exit 2; }
-scripts/build/release.sh
+[[ ${1:-} == --existing-binaries || -n ${AUTOBRICKS_PKI_VERSION:-} ]] || { echo 'Use scripts/build/run.sh scripts/package/build.sh' >&2; exit 2; }
+if [[ ${1:-} == --existing-binaries && $# == 1 ]]; then
+    AUTOBRICKS_PKI_VERSION=$(<VERSION)
+    export AUTOBRICKS_PKI_VERSION
+    for binary in abpkid abpki-cli; do
+        [[ $("bin/$binary" --version) == "$binary $AUTOBRICKS_PKI_VERSION" ]] || {
+            echo "Binary version does not match VERSION: $binary" >&2
+            exit 2
+        }
+    done
+elif (( $# == 0 )); then
+    scripts/build/release.sh
+else
+    echo 'Usage: scripts/package/build.sh [--existing-binaries]' >&2
+    exit 2
+fi
 read -r package_os package_os_version < <(python3 - <<'PLATFORM'
 import shlex
 from pathlib import Path

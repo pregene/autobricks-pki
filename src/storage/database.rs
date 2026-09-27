@@ -63,6 +63,7 @@ impl Database {
         conn.execute_batch(include_str!("schema.sql"))?;
         // Validate the current layout without converting an existing database.
         conn.prepare("SELECT certificate_path, private_key_path, valid FROM certificates LIMIT 0")?;
+        conn.prepare("SELECT crl_path FROM crls LIMIT 0")?;
         let database = Self {
             conn,
             worm: crate::storage::worm::Worm::new(&worm)?,

@@ -35,6 +35,13 @@ pub(super) const OPERATIONS: &[Operation] = &[
         example: "abpki-cli create < request.json",
     },
     Operation {
+        name: "info",
+        usage: "info FINGERPRINT",
+        description: "Display the public certificate's X.509 details.",
+        details: "Arguments:\n  FINGERPRINT\n      Certificate SHA-256 fingerprint, 64 lowercase hexadecimal characters.\n\nShows version, serial number, signature algorithm, issuer, validity, subject, public key, extensions, and signature. Applies to Root, Intermediate, and leaf certificates. Private keys are not read or returned. An unknown fingerprint returns Certificate not found.",
+        example: "abpki-cli info <fingerprint>",
+    },
+    Operation {
         name: "check",
         usage: "check FINGERPRINT",
         description: "Check certificate revocation status: GOOD, REVOKED, or UNKNOWN.",

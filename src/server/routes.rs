@@ -104,6 +104,16 @@ fn route(s: &Service, r: &Request) -> Result<Response> {
                 "application/x-pem-file",
             ));
         }
+        if let Some(id) = r.path.strip_prefix("/api/info/") {
+            return Ok(match s.certificate_info(&decode_segment(id)?)? {
+                Some(text) => file(text, "text/plain; charset=utf-8"),
+                None => Response {
+                    status: "404 Not Found",
+                    content_type: "text/plain",
+                    body: b"Certificate not found\n".to_vec(),
+                },
+            });
+        }
         if let Some(id) = r.path.strip_prefix("/api/check/") {
             let status = match s.db.all()?.into_iter().find(|c| c.fingerprint == id) {
                 Some(c) if c.revoked_at.is_some() => Status::Revoked,

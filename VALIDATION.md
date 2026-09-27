@@ -67,7 +67,7 @@ The seven-day window uses elapsed time: 7 × 24 hours. It applies to Intermediat
 
 ## Intermediate CA renewal
 
-`abpkid` checks Intermediate CA expiration and performs renewal internally within the renewal window. This includes the six [default issuers](INTERMEDIATE.md): `database`, `www`, `vpn`, `worm`, `app`, and `truelog`.
+`abpkid` runs its renewal scheduler once every hour and performs Intermediate CA renewal internally within the renewal window. The first server start runs the scheduler immediately; subsequent starts run immediately only when the persisted last-attempt time is at least one hour old. Each attempt is persisted before work begins, including failed attempts; failures are logged and the next scheduled attempt is one hour later. A stopped server does not run jobs. The running server checks the schedule every 30 seconds. CRL refresh and pending TrueLog/DNS delivery continue every 30 seconds independently of the hourly renewal schedule. The server also renews its own TLS certificate during the hourly run. This includes the six [default issuers](INTERMEDIATE.md): `database`, `www`, `vpn`, `worm`, `app`, and `truelog`.
 
 Renewal produces a newly signed Intermediate CA certificate. Previously issued certificates retain their original signed contents and validity. Certificate validation uses the applicable issuer chain; renewing a CA does not rewrite existing leaf certificates.
 

@@ -1,6 +1,6 @@
 # SQLite schema
 
-Autobricks PKI Server 1.0 stores operational state in SQLite. The installed service uses `/var/lib/autobricks-pki/abpki.sqlite`, configured through `ABPKI_DATABASE`. The live database and its journal reside on mutable storage outside WORM. The database file requires owner-only permissions (`0600`).
+Autobricks PKI Server 1.0 stores operational state in SQLite. The installed service uses `/var/lib/autobricks-pki/abpki.sqlite`, configured through `ABPKI_DATABASE`. No SQLite table stores certificate, private-key, or CRL PEM contents, including settings and outbox payloads. The live database and its journal reside on mutable storage outside WORM. The database file requires owner-only permissions (`0600`).
 
 Schema initialization is implemented in [database.rs](src/storage/database.rs); private-key encryption is implemented in [key_encryption.rs](src/storage/key_encryption.rs). The current database schema version is `PRAGMA user_version = 1`, independent of the product build version in `VERSION`.
 
@@ -59,7 +59,7 @@ CREATE INDEX IF NOT EXISTS intermediate_leaf_issuer
 CREATE TABLE IF NOT EXISTS crls (
     idx INTEGER PRIMARY KEY AUTOINCREMENT,
     issuer INTEGER NOT NULL UNIQUE REFERENCES certificates(idx),
-    pem BLOB NOT NULL,
+    crl_path TEXT NOT NULL,
     next_update INTEGER NOT NULL,
     number INTEGER NOT NULL
 );
@@ -111,7 +111,7 @@ erDiagram
     crls {
         INTEGER idx PK
         INTEGER issuer FK,UK
-        BLOB pem
+        TEXT crl_path
         INTEGER next_update
         INTEGER number
     }
@@ -139,6 +139,7 @@ Root certificates have no issuer reference. Intermediate certificates reference 
 | `private_key_password` | 64 hexadecimal ASCII characters representing 32 random bytes | Password for encrypting and decrypting stored private keys. This is a usable secret, not a password hash. |
 | `base_domain` | UTF-8 normalized domain, at most 24 ASCII characters | Installation domain for CA names and generated DNS names. |
 | `ca_validity_policy` | UTF-8 JSON containing `retention_days` and `intermediate_days` | Installation retention and Intermediate CA limit: `min(398, retention_days - 7)`. For 365 days of retention, the limit is 358 days. |
+| `renewal_scheduler_last_attempt` | JSON integer, UTC Unix seconds | Start of the latest hourly renewal attempt; prevents duplicate runs across service restarts. |
 | `tls_certificate` | UTF-8 certificate fingerprint | Current PKI service TLS certificate; updated during internal TLS certificate renewal. |
 
 SQLite stores the encryption password; encrypted keys reside on WORM. Access to both the password and WORM key files permits decryption. See [key storage](docs/key-storage.md).
@@ -180,7 +181,7 @@ An accepted renewal puts the existing certificate into `SUPERSEDED`; the replace
 
 X.509 CRLs define `superseded (4)` as a **revocation reason** in [RFC 5280 Section 5.3.1](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.3.1). That reason applies to an actual revocation. It does not give a revoked certificate permission to remain usable. The local temporary `SUPERSEDED` state must therefore remain separate from publishing a CRL entry with that reason.
 
-Successful replacement download confirmation automatically changes the old certificate from `SUPERSEDED` to `REVOKED`, sets `revoked_at`, regenerates its CRLs, and queues its revocation audit event in one transaction. The replacement remains `VALID`. The predecessor is found through the replacement's `previous_certificate_idx`, never by selecting another certificate with the same CN.
+Successful replacement download confirmation automatically changes the old certificate from `SUPERSEDED` to `REVOKED`, sets `revoked_at`, and queues CRL publication and its revocation audit event in one transaction. CRL signing occurs after the revocation commits; signing failure cannot reverse revocation. The replacement remains `VALID`. The predecessor is found through the replacement's `previous_certificate_idx`, never by selecting another certificate with the same CN.
 
 Confirmation is authenticated with the replacement fingerprint and its access token after the client has saved and synchronized the archive. A socket write alone does not establish successful download. Missing confirmation leaves the old certificate `SUPERSEDED` within its existing validity period. Repeated confirmation after revocation is successful without duplicating the revocation transition.
 
@@ -255,21 +256,21 @@ SQLite and WORM are not atomic together. Failure after a WORM write but before m
 
 ## CRLs
 
-`crls` stores the current signed CRL for each issuing Intermediate CA, referenced by its numeric certificate key.
+`crls` stores the WORM path and metadata of the current signed CRL for each issuing Intermediate CA, referenced by its numeric certificate key.
 
 | Column | Application representation and meaning |
 | --- | --- |
 | `idx` | Automatically incremented integer primary key. |
 | `issuer` | Required unique integer foreign key referencing `certificates.idx`. One current CRL per Intermediate CA certificate generation. |
-| `pem` | PEM-encoded signed CRL stored as bytes. |
+| `crl_path` | Relative path to the signed CRL PEM under `ABPKI_WORM`; no CRL contents are stored in SQLite. |
 | `next_update` | CRL expiration as Unix UTC seconds. CRL validity is fixed at seven days. |
-| `number` | CRL sequence number. Generation takes the highest stored number across Intermediate CA generations with the same CN and increments it. |
+| `number` | CRL sequence number. Generation takes the highest stored number across generations linked by `previous_certificate_idx` and increments it. |
 
-Publication replaces the current row for the issuer. Revocation immediately regenerates the affected CRL. The signed CRL contains its `thisUpdate`; there is no separate database column for it. See [CRL distribution](CRL.md).
+Publication writes a new immutable WORM file before updating all issuer rows in the renewal lineage to its path and number. Revocation immediately regenerates the affected CRL. The signed CRL contains its `thisUpdate`; there is no separate database column for it. See [CRL distribution](CRL.md).
 
 ## Delivery outbox
 
-`outbox` records pending external operations alongside database changes. Certificate files are written directly to WORM before issuance commits. The outbox queues TrueLog and DNS operations only; it does not queue certificate-file copies.
+`outbox` records pending external operations alongside database changes. Certificate files are written directly to WORM before issuance commits. The outbox queues CRL publication, TrueLog, and DNS operations; it does not queue certificate-file copies.
 
 | Column | Application representation and meaning |
 | --- | --- |
@@ -281,6 +282,7 @@ Publication replaces the current row for the issuer. Revocation immediately rege
 | Kind | Payload fields | Delivery |
 | --- | --- | --- |
 | `audit` | `event`, `fingerprint`, `timestamp` (Unix UTC seconds) | Submits an audit event through `ab-truelog-cli`. Delivery adds `event_id` as `<root-fingerprint>:<outbox-id>`; this field is not stored in the payload. |
+| `crl` | Issuer certificate fingerprint | Regenerates the issuer CRL after committed revocation; failure leaves the certificate revoked and publication pending. |
 | `dns` | `name`, `type` (`A` or `AAAA`), `ip` | Registers a record through Autobricks DNS. |
 
 Failed operations remain pending. External delivery and SQLite completion are not one atomic transaction; a committed external write followed by a lost acknowledgement can be retried. TrueLog manages audit files and retention. The outbox stores delivery state and does not replace TrueLog audit storage.

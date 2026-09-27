@@ -1,5 +1,28 @@
 # Development history
 
+## 1.0.102 — 2026-09-27
+
+- Added package assembly from existing version-verified binaries without recompilation.
+
+- Added abpki-cli info FINGERPRINT and its TLS management endpoint to display public X.509 certificate details directly from WORM without private-key access.
+- Added operation help and explicit certificate-not-found responses.
+- Passed the panic gate with 44 Rust tests and 10 installer tests, including actual CLI info output and private-key-independent certificate inspection.
+
+## 1.0.099 — 2026-09-27
+
+- Stored signed CRLs on WORM and retained only publication paths and metadata in SQLite; CRL downloads read published files without signing or database writes.
+- Linked Intermediate CA renewals through predecessor keys and preserved shared CRL numbering and revocations across all linked generations.
+- Created initial empty CRLs with number 1 and refreshed expired CRLs through background scheduling.
+- Verified no PEM contents exist in any operational SQLite table after issuance, renewal, and revocation.
+- Passed the panic gate with 43 Rust tests and 10 installer tests; built both binaries.
+
+## 1.0.088 — 2026-09-27
+
+- Added hourly renewal scheduling with a persisted attempt time and restart deduplication; retained independent CRL refresh and integration retries.
+- Committed certificate revocation before CRL signing and retained failed CRL publication for retry without reversing revocation.
+- Prevented downloads of known-outdated CRLs when pending regeneration fails.
+- Passed the panic gate with 39 Rust tests and 10 installer tests; verified OCSP reports REVOKED while CRL publication fails.
+
 ## 1.0.079 — 2026-09-27
 
 - Stored certificate and encrypted private-key files directly on WORM before inserting SQLite paths and metadata; removed certificate-copy outbox delivery.

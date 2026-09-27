@@ -69,6 +69,7 @@ The service database path is `/var/lib/autobricks-pki/abpki.sqlite`, configured 
     root/
     intermediate/
     certificate/
+    crl/
 ```
 
 The reference service configuration sets the absolute database path above. If `ABPKI_DATABASE` is omitted, the executable uses `abpki.sqlite` in its working directory.
@@ -78,17 +79,17 @@ The operational database and all of its working files stay on mutable storage ou
 | Database table | Contents |
 | --- | --- |
 | `settings` | Salted administrator password hash, private-key encryption password, base domain, installation retention/CA validity policy, and current service TLS certificate identifier |
-| `certificates` | Root, Intermediate, and leaf certificates; Encrypted PKCS#8 private keys; validity; revocation timestamps; issuance profiles; access-token hashes |
-| `crls` | Signed CRL PEM, update deadline, and CRL number for issuer generations |
-| `outbox` | Certificate, audit, and DNS delivery records with completion state |
+| `certificates` | Certificate and encrypted-key WORM paths; identifiers; validity; revocation state; issuance profiles; access-token hashes |
+| `crls` | Signed CRL WORM path, update deadline, and CRL number for issuer generations |
+| `outbox` | CRL publication, audit, and DNS delivery records with completion state |
 
-Operational private keys use encrypted PKCS#8 PEM in SQLite. Root CA, Intermediate CA, and leaf private keys also have matching encrypted PEM archive copies on WORM; the encryption password is managed in SQLite. Its TLS certificate and key are loaded from the database. The database file is created with mode `0600`; an existing file with group or other access is rejected. The package provisions the mutable parent directory as mode `0700`; the daemon does not repair its permissions.
+Certificate, private-key, and CRL PEM contents reside only on WORM. SQLite stores paths and metadata, with the encryption password in settings. TLS loads its certificate and encrypted key from WORM. The database file is created with mode `0600`; an existing file with group or other access is rejected. The package provisions the mutable parent directory as mode `0700`; the daemon does not repair its permissions.
 
 ## WORM artifacts
 
 The installer saves the UTC Unix-second timestamp in `ABPKI_INSTALLED_AT` and the complete archive path in `ABPKI_WORM` in `/etc/autobricks-pki/abpkid.env`. Restarts and upgrades preserve this path. A fresh installation after purge uses a new timestamp namespace; retained WORM files remain untouched.
 
-Certificate artifacts use the following installation-specific layout:
+Certificate and CRL artifacts use the following installation-specific layout:
 
 ```text
 /mnt/worm-storage/<installation-timestamp>/pki/
@@ -105,11 +106,16 @@ Certificate artifacts use the following installation-specific layout:
             <certificate-fingerprint>/
                 <CN>.pem
                 <CN>.key.pem
+    crl/
+        <issuer-fingerprint>/
+            <number>-<sha256>.pem
 ```
+
+CRL files use `crl/<issuer-fingerprint>/<number>-<sha256>.pem`. The DB publishes the latest file for all linked CA generations; prior files remain immutable.
 
 The Root CA public certificate is stored under `root/`. Intermediate CA public certificates use `intermediate/`; leaf certificates use `certificate/`. Each Root CA, Intermediate CA, and leaf certificate is accompanied by its matching encrypted PKCS#8 private-key PEM as `<CN>.key.pem`.
 
-`YYYY-MM-DD` is the UTC issuance date captured when the archive is queued, independent of custom certificate validity dates and delivery retry time. Fingerprint directories separate multiple certificates with the same CN and issuance date. CN filename components retain ASCII letters, digits, dots, hyphens, and underscores; other UTF-8 bytes are percent-encoded to prevent path traversal. The certificate subject itself is unchanged.
+`YYYY-MM-DD` is the UTC date of the certificate validity start (`not_before`). Fingerprint directories separate multiple certificates with the same CN and issuance date. CN filename components retain ASCII letters, digits, dots, hyphens, and underscores; other UTF-8 bytes are percent-encoded to prevent path traversal. The certificate subject itself is unchanged.
 
 PKI requests mode `0700` for archive directories and `0600` for files. TrueLog WORM exposes its configured writer ownership with directory mode `0770` and file mode `0660`; matching root owner/group permissions are accepted. World-accessible artifacts are rejected. Delivery retries accept matching bytes and append only a missing suffix. Conflicting content and symlink paths are rejected. WORM retention is enforced by the filesystem; PKI does not rotate or delete artifacts. Existing archived files are not moved or renamed.
 

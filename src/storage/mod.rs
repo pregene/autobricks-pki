@@ -5,4 +5,5 @@ pub mod worm;
 mod delivery;
 mod key_encryption;
 
+mod lineage;
 pub mod listing;

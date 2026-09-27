@@ -102,13 +102,9 @@ impl Service {
             .into_iter()
             .filter(|c| c.kind == "intermediate")
         {
-            let _ = self.crl(&ca.fingerprint)?;
-            if ca.validity.renewable(now())
-                && !self
-                    .db
-                    .all()?
-                    .iter()
-                    .any(|c| c.cn == ca.cn && c.validity.not_after > ca.validity.not_after)
+            if ca.revoked_at.is_none()
+                && ca.validity.renewable(now())
+                && !self.db.ca_has_successor(&ca.fingerprint)?
             {
                 self.db.transaction(|| {
                     let root = self.root()?;
@@ -133,6 +129,7 @@ impl Service {
                     let replacement =
                         record(cert, key, "intermediate", Some(root.fingerprint), validity)?;
                     self.db.insert(&replacement)?;
+                    self.db.conn.execute("UPDATE certificates SET previous_certificate_idx=(SELECT idx FROM certificates WHERE fingerprint=?) WHERE fingerprint=?", rusqlite::params![ca.fingerprint,replacement.fingerprint])?;
                     self.archive(&replacement, "intermediate-renewed")?;
                     self.publish_crl(&replacement, now())
                 })?;

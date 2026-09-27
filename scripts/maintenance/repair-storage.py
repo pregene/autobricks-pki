@@ -91,6 +91,9 @@ def export_database(source, target, worm, writer):
     key_environment = dict(os.environ, ABPKI_REPAIR_KEY_PASSWORD=password)
     mapped = []
     for row in rows:
+        if 'pem' not in row.keys():
+            mapped.append((row, row['certificate_path'], row['private_key_path']))
+            continue
         pem = row['pem']
         der = subprocess.check_output(['openssl', 'x509', '-outform', 'DER'], input=pem.encode())
         if hashlib.sha256(der).hexdigest() != row['fingerprint']:
@@ -105,7 +108,7 @@ def export_database(source, target, worm, writer):
         writer(worm, [(cert_path, pem), (key_path, row['key_pem'])])
         mapped.append((row, cert_path, key_path))
     target.executescript((ROOT / 'src/storage/schema.sql').read_text())
-    for table in ('settings', 'crls', 'outbox'):
+    for table in ('settings', 'outbox'):
         for row in source.execute(f'SELECT * FROM {table}'):
             names = ','.join(row.keys())
             placeholders = ','.join('?' for _ in row)
@@ -113,9 +116,20 @@ def export_database(source, target, worm, writer):
     for row, cert_path, key_path in mapped:
         item = {key: row[key] for key in row.keys() if key not in ('pem', 'key_pem')}
         item.update(certificate_path=cert_path, private_key_path=key_path,
-                    valid='REVOKED' if row['revoked_at'] is not None else 'VALID')
+                    valid=row['valid'] if 'valid' in row.keys() else ('REVOKED' if row['revoked_at'] is not None else 'VALID'))
         target.execute('INSERT INTO certificates (' + ','.join(item) + ') VALUES (' +
                        ','.join('?' for _ in item) + ')', tuple(item.values()))
+    for row in source.execute('SELECT * FROM crls'):
+        item = dict(row)
+        if 'pem' in item:
+            pem = item.pop('pem')
+            pem = pem.encode() if isinstance(pem, str) else pem
+            subprocess.run(['openssl', 'crl', '-noout'], input=pem, check=True, capture_output=True)
+            fingerprint = source.execute('SELECT fingerprint FROM certificates WHERE idx=?', (item['issuer'],)).fetchone()[0]
+            path = f"crl/{fingerprint}/{item['number']}-{hashlib.sha256(pem).hexdigest()}.pem"
+            writer(worm, [(path, pem.decode())])
+            item['crl_path'] = path
+        target.execute('INSERT INTO crls (' + ','.join(item) + ') VALUES (' + ','.join('?' for _ in item) + ')', tuple(item.values()))
     target.execute("INSERT INTO intermediate_leaf(intermediate_idx,leaf_idx) SELECT ca.idx,leaf.idx FROM certificates ca JOIN certificates leaf ON leaf.issuer=ca.fingerprint WHERE ca.kind='intermediate' AND leaf.kind IN ('server','client','server-and-client')")
     target.execute("UPDATE outbox SET done=1 WHERE kind='certificate'")
     for name, sequence in source.execute('SELECT name,seq FROM sqlite_sequence'):
@@ -148,7 +162,8 @@ def main():
         with sqlite3.connect(database) as old, sqlite3.connect(backup / 'abpki.sqlite') as saved:
             old.backup(saved)
         columns = {row[1] for row in old.execute('PRAGMA table_info(certificates)')}
-        if 'pem' in columns:
+        crl_columns = {row[1] for row in old.execute('PRAGMA table_info(crls)')}
+        if 'pem' in columns or 'pem' in crl_columns:
             fd, name = tempfile.mkstemp(prefix='.abpki-repair-', dir=database.parent)
             os.close(fd)
             candidate = Path(name)
@@ -157,7 +172,7 @@ def main():
                     input=json.dumps({'root': str(root), 'files': files}), text=True)
             with sqlite3.connect(candidate) as new:
                 count = export_database(old, new, worm, writer)
-            print(f'Verified {count} existing certificates and encrypted keys on WORM.')
+            print(f'Preserved {count} certificates; certificate, key, and CRL contents reside on WORM.')
             os.chown(candidate, account.pw_uid, account.pw_gid)
             old.close()
             os.replace(candidate, database)

@@ -89,6 +89,9 @@ fn run() -> Result<()> {
         println!("PKI initialized");
         return Ok(());
     }
+    if let Err(error) = service.run_hourly_renewal(autobricks_pki::server::service::now()) {
+        eprintln!("hourly renewal failed: {error}");
+    }
     service.tls_config()?;
     let management_listener = TcpListener::bind(c.listeners.tls_address())?;
     let https_listener = TcpListener::bind(c.listeners.https_address())?;
@@ -100,8 +103,13 @@ fn run() -> Result<()> {
             loop {
                 match maintenance.lock() {
                     Ok(s) => {
-                        if s.maintain().is_err() {
-                            eprintln!("maintenance: pending integration or renewal failure");
+                        match s.run_hourly_renewal(autobricks_pki::server::service::now()) {
+                            Ok(true) => eprintln!("hourly renewal completed"),
+                            Ok(false) => (),
+                            Err(error) => eprintln!("hourly renewal failed: {error}"),
+                        }
+                        if let Err(error) = s.refresh_status_and_deliver() {
+                            eprintln!("status refresh or integration delivery failed: {error}");
                         }
                     }
                     Err(_) => return,

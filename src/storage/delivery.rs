@@ -16,6 +16,10 @@ impl Service {
         let mut failure = None;
         for (id, kind, payload) in self.db.pending()? {
             let result = match kind.as_str() {
+                "crl" => self.db.transaction(|| {
+                    let issuer = self.db.get(&payload)?;
+                    self.publish_crl(&issuer, now())
+                }),
                 "audit" => (|| -> Result<()> {
                     let mut event: serde_json::Value = serde_json::from_str(&payload)?;
                     event["event_id"] = format!("{}:{id}", self.root()?.fingerprint).into();

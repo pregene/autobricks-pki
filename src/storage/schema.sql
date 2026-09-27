@@ -37,7 +37,7 @@ CREATE INDEX IF NOT EXISTS intermediate_leaf_issuer
 CREATE TABLE IF NOT EXISTS crls (
     idx INTEGER PRIMARY KEY AUTOINCREMENT,
     issuer INTEGER NOT NULL UNIQUE REFERENCES certificates(idx),
-    pem BLOB NOT NULL,
+    crl_path TEXT NOT NULL,
     next_update INTEGER NOT NULL,
     number INTEGER NOT NULL
 );
