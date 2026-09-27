@@ -44,10 +44,11 @@ impl Database {
     }
 
     pub fn encrypted_key(&self, fingerprint: &str) -> Result<String> {
-        Ok(self.conn.query_row(
-            "SELECT key_pem FROM certificates WHERE fingerprint=?",
+        let path: String = self.conn.query_row(
+            "SELECT private_key_path FROM certificates WHERE fingerprint=?",
             [fingerprint],
             |row| row.get(0),
-        )?)
+        )?;
+        self.worm.read_text(&path)
     }
 }

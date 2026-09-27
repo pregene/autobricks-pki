@@ -1,5 +1,6 @@
 pub mod credentials;
 pub mod daemon;
+pub mod listing;
 use crate::{Result, transport::tls};
 use std::{
     io::{Read, Write},

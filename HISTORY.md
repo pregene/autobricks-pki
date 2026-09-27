@@ -1,5 +1,26 @@
 # Development history
 
+## 1.0.079 — 2026-09-27
+
+- Stored certificate and encrypted private-key files directly on WORM before inserting SQLite paths and metadata; removed certificate-copy outbox delivery.
+- Added the CA-to-leaf relation, persisted revocation status, and loaded signing keys from protected WORM paths.
+- Added an explicit maintenance batch preserving existing certificates, keys, identifiers, configuration, and trust while replacing the legacy database layout with rollback backups. The runtime performs no schema conversion.
+- Passed 36 Rust tests, verified the maintenance batch against temporary data, and built both binaries.
+
+## 1.0.076 — 2026-09-27
+
+- Built server and client binaries with metadata-only lists and remaining-day output in bin/.
+
+## 1.0.075 — 2026-09-27
+
+- Renamed list columns to IssuedAt and remain; remaining days are calculated from expiry with partial days rounded up and expired certificates shown as zero.
+
+## 1.0.074 — 2026-09-27
+
+- Added metadata-only certificate list queries that do not load certificate PEM or decrypt private keys.
+- Formatted CLI lists with Index, Common Name, Status, Issued At (UTC), Validity (Days), and full Fingerprint columns.
+- Verified metadata projection and list rendering with three focused tests.
+
 ## 1.0.072 — 2026-09-27
 
 - Revalidated the installation readiness fix with the distribution OpenSSL panic gate: formatting, production Clippy checks, 33 Rust tests, and 10 installer tests passed.

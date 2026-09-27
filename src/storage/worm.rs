@@ -28,6 +28,26 @@ impl Worm {
             && metadata.uid() == root.uid()
             && metadata.gid() == root.gid())
     }
+    pub fn read_text(&self, name: &str) -> Result<String> {
+        let relative = Path::new(name);
+        if relative.is_absolute()
+            || relative
+                .components()
+                .any(|c| !matches!(c, std::path::Component::Normal(_)))
+        {
+            return Err("invalid WORM path".into());
+        }
+        let mut path = self.root.clone();
+        for component in relative.components() {
+            path.push(component);
+            let metadata = fs::symlink_metadata(&path)?;
+            if metadata.file_type().is_symlink() || !self.safe_permissions(&metadata)? {
+                return Err("unsafe WORM path".into());
+            }
+        }
+        Ok(fs::read_to_string(path)?)
+    }
+
     pub fn write_once(&self, name: &str, data: &[u8]) -> Result<()> {
         let parts: Vec<_> = name.split('/').collect();
         if parts.iter().any(|part| {

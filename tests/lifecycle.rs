@@ -812,6 +812,29 @@ fn stored_keys_are_encrypted_and_require_the_password() {
         )
         .unwrap();
     assert_eq!(password.len(), 64);
+    let columns: Vec<String> = connection
+        .prepare("PRAGMA table_info(certificates)")
+        .unwrap()
+        .query_map([], |row| row.get(1))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert!(
+        !columns
+            .iter()
+            .any(|name| name == "pem" || name == "key_pem")
+    );
+    assert!(columns.iter().any(|name| name == "certificate_path"));
+    assert!(columns.iter().any(|name| name == "private_key_path"));
+    let queued: i64 = connection
+        .query_row(
+            "SELECT count(*) FROM outbox WHERE kind='certificate'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(queued, 0);
+
     for certificate in f.service.db.all().unwrap() {
         let encrypted = f
             .service

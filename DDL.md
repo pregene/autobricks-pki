@@ -17,7 +17,7 @@ Each connection uses a five-second busy timeout. Application transactions use `B
 
 ## Table definitions
 
-The following DDL specifies the storage design. WORM-backed certificate/key paths, the CA-to-leaf relation, and lifecycle fields are not yet implemented in the runtime. Current storage code still keeps PEM contents in SQLite. The audit table below is also a design contract.
+The following DDL specifies the storage design. Certificate and encrypted-key files are written directly to WORM before inserting their paths and metadata. The CA-to-leaf relation is populated during issuance. Lifecycle handover transitions remain outside the current runtime implementation. The audit table below is also a design contract.
 
 ```sql
 CREATE TABLE IF NOT EXISTS settings (
@@ -269,7 +269,7 @@ Publication replaces the current row for the issuer. Revocation immediately rege
 
 ## Delivery outbox
 
-`outbox` records pending external operations alongside database changes. The current runtime queues WORM, TrueLog, and DNS work as listed below. With WORM as the source store, certificate files precede issuance commit; audit and DNS remain post-commit delivery work. The runtime WORM-copy queue is not part of the target certificate persistence path.
+`outbox` records pending external operations alongside database changes. Certificate files are written directly to WORM before issuance commits. The outbox queues TrueLog and DNS operations only; it does not queue certificate-file copies.
 
 | Column | Application representation and meaning |
 | --- | --- |
@@ -280,7 +280,6 @@ Publication replaces the current row for the issuer. Revocation immediately rege
 
 | Kind | Payload fields | Delivery |
 | --- | --- | --- |
-| `certificate` | `fingerprint`, `created_at` (Unix UTC seconds) | Writes the certificate and its encrypted private key through the WORM mount. The creation timestamp determines the UTC archive date. Legacy payloads containing only a fingerprint use the certificate's `not_before` as the archive date. |
 | `audit` | `event`, `fingerprint`, `timestamp` (Unix UTC seconds) | Submits an audit event through `ab-truelog-cli`. Delivery adds `event_id` as `<root-fingerprint>:<outbox-id>`; this field is not stored in the payload. |
 | `dns` | `name`, `type` (`A` or `AAAA`), `ip` | Registers a record through Autobricks DNS. |
 

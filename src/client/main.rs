@@ -107,6 +107,10 @@ fn run() -> Result<()> {
         }
         response = serde_json::to_vec(&public)?;
     }
+    if matches!(command.as_str(), "list" | "list-ca") {
+        print!("{}", client::listing::render(&response)?);
+        return Ok(());
+    }
     if let Some(path) = output {
         let mut file = OpenOptions::new()
             .write(true)

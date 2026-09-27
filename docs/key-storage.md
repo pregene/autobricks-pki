@@ -6,7 +6,7 @@ Root CA, Intermediate CA, and leaf private keys are stored as encrypted PKCS#8 P
 
 The database requires owner-only permissions (`0600`) outside WORM. Access to the database password together with WORM key files permits decryption. WORM files do not contain the password. TrueLog WORM exposes its configured protected writer group; PKI file access must honor that mount's permissions and retention.
 
-Signing and TLS load the referenced encrypted key from WORM and decrypt it in memory. Authorized leaf downloads contain a decrypted key; CA private keys are not downloadable. The referenced certificate and key must match. This source-storage contract is not yet implemented: current code still duplicates encrypted keys in SQLite and WORM.
+Signing and TLS load the referenced encrypted key from WORM and decrypt it in memory. Authorized leaf downloads contain a decrypted key; CA private keys are not downloadable. The referenced certificate and key must match. Certificate and encrypted key files are written directly to WORM before the metadata row is inserted. File-write failures fail issuance; certificate bodies are never staged in SQLite or the delivery outbox.
 
 The administrator password is stored as a salted PBKDF2-HMAC-SHA256 hash with 600,000 iterations and a random 32-byte salt. There are no user accounts, user lists, or role assignments. Standalone certificate revocation validates this password on the server. Additional Intermediate CA creation is unavailable in 1.0.
 

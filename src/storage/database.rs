@@ -25,6 +25,7 @@ pub struct Certificate {
 }
 pub struct Database {
     pub(crate) conn: Connection,
+    pub(crate) worm: crate::storage::worm::Worm,
 }
 impl Database {
     pub fn open(path: &Path, worm: &Path) -> Result<Self> {
@@ -58,12 +59,14 @@ impl Database {
             return Err("database schema is newer than this binary".into());
         }
 
-        conn.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA secure_delete=ON;
-        CREATE TABLE IF NOT EXISTS settings(name TEXT PRIMARY KEY, value BLOB NOT NULL);
-        CREATE TABLE IF NOT EXISTS certificates(idx INTEGER PRIMARY KEY AUTOINCREMENT,fingerprint TEXT NOT NULL UNIQUE,cn TEXT NOT NULL,kind TEXT NOT NULL,issuer TEXT REFERENCES certificates(fingerprint),serial TEXT NOT NULL,not_before INTEGER NOT NULL,not_after INTEGER NOT NULL,pem TEXT NOT NULL,key_pem TEXT NOT NULL,revoked_at INTEGER,profile TEXT,download_hash BLOB,UNIQUE(issuer,serial));
-        CREATE TABLE IF NOT EXISTS crls(idx INTEGER PRIMARY KEY AUTOINCREMENT,issuer INTEGER NOT NULL UNIQUE REFERENCES certificates(idx),pem BLOB NOT NULL,next_update INTEGER NOT NULL,number INTEGER NOT NULL);
-        CREATE TABLE IF NOT EXISTS outbox(id INTEGER PRIMARY KEY,kind TEXT NOT NULL,payload TEXT NOT NULL,done INTEGER NOT NULL DEFAULT 0);")?;
-        let database = Self { conn };
+        conn.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA secure_delete=ON;")?;
+        conn.execute_batch(include_str!("schema.sql"))?;
+        // Validate the current layout without converting an existing database.
+        conn.prepare("SELECT certificate_path, private_key_path, valid FROM certificates LIMIT 0")?;
+        let database = Self {
+            conn,
+            worm: crate::storage::worm::Worm::new(&worm)?,
+        };
         database.initialize_key_encryption()?;
         database.conn.pragma_update(None, "user_version", 1)?;
         Ok(database)
@@ -84,8 +87,15 @@ impl Database {
         Ok(())
     }
     pub fn insert(&self, c: &Certificate) -> Result<()> {
+        let (certificate_path, private_key_path) =
+            crate::storage::archive::paths(c, c.validity.not_before)?;
+        let private_key_path = private_key_path.ok_or("missing private key archive path")?;
+        let encrypted_key = self.encrypt_key(&c.key_pem)?;
+        self.worm.write_once(&certificate_path, c.pem.as_bytes())?;
+        self.worm
+            .write_once(&private_key_path, encrypted_key.as_bytes())?;
         self.conn.execute(
-            "INSERT INTO certificates(fingerprint,cn,kind,issuer,serial,not_before,not_after,pem,key_pem,revoked_at,profile,download_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO certificates(fingerprint,cn,kind,issuer,serial,not_before,not_after,certificate_path,private_key_path,revoked_at,profile,download_hash,valid) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             params![
                 c.fingerprint,
                 c.cn,
@@ -94,17 +104,21 @@ impl Database {
                 c.serial,
                 c.validity.not_before,
                 c.validity.not_after,
-                c.pem,
-                self.encrypt_key(&c.key_pem)?,
+                certificate_path,
+                private_key_path,
                 c.revoked_at,
                 c.profile,
-                c.download_hash
+                c.download_hash,
+                if c.revoked_at.is_some() { "REVOKED" } else { "VALID" }
             ],
         )?;
+        if let Some(issuer) = &c.issuer {
+            self.conn.execute("INSERT INTO intermediate_leaf(intermediate_idx,leaf_idx) SELECT issuer.idx,leaf.idx FROM certificates issuer,certificates leaf WHERE issuer.fingerprint=? AND issuer.kind='intermediate' AND leaf.fingerprint=? AND leaf.kind IN ('server','client','server-and-client')", params![issuer,c.fingerprint])?;
+        }
         Ok(())
     }
     pub fn all(&self) -> Result<Vec<Certificate>> {
-        let mut q=self.conn.prepare("SELECT fingerprint,cn,kind,issuer,serial,not_before,not_after,pem,key_pem,revoked_at,profile,download_hash FROM certificates ORDER BY idx")?;
+        let mut q=self.conn.prepare("SELECT fingerprint,cn,kind,issuer,serial,not_before,not_after,certificate_path,private_key_path,revoked_at,profile,download_hash FROM certificates ORDER BY idx")?;
         let mut certificates = q
             .query_map([], |r| {
                 Ok(Certificate {
@@ -126,7 +140,8 @@ impl Database {
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         for certificate in &mut certificates {
-            certificate.key_pem = self.decrypt_key(&certificate.key_pem)?;
+            certificate.pem = self.worm.read_text(&certificate.pem)?;
+            certificate.key_pem = self.decrypt_key(&self.worm.read_text(&certificate.key_pem)?)?;
         }
         Ok(certificates)
     }

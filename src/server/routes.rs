@@ -93,20 +93,10 @@ fn route(s: &Service, r: &Request) -> Result<Response> {
             return Ok(file(s.root()?.pem.into_bytes(), "application/x-pem-file"));
         }
         if r.path == "/api/list-ca" {
-            return json_response(
-                s.db.all()?
-                    .into_iter()
-                    .filter(|c| c.kind == "intermediate")
-                    .collect::<Vec<_>>(),
-            );
+            return json_response(s.db.list_certificates(true)?);
         }
         if r.path == "/api/list" {
-            return json_response(
-                s.db.all()?
-                    .into_iter()
-                    .filter(|c| c.kind != "root" && c.kind != "intermediate")
-                    .collect::<Vec<_>>(),
-            );
+            return json_response(s.db.list_certificates(false)?);
         }
         if let Some(id) = r.path.strip_prefix("/api/chain/") {
             return Ok(file(

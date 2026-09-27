@@ -15,7 +15,7 @@ impl Service {
             if c.kind=="root" || c.kind=="intermediate" { return Err("this operation revokes leaf certificates only".into()); }
             if c.revoked_at.is_some() { return Ok(()); }
             let timestamp=now();
-            self.db.conn.execute("UPDATE certificates SET revoked_at=? WHERE fingerprint=?",params![timestamp,id])?;
+            self.db.conn.execute("UPDATE certificates SET valid='REVOKED', revoked_at=? WHERE fingerprint=?",params![timestamp,id])?;
             let issuer=self.db.get(c.issuer.as_deref().ok_or("missing issuer")?)?;
             for generation in self.db.all()?.iter().filter(|entry| entry.kind=="intermediate" && entry.cn==issuer.cn) { self.publish_crl(generation,timestamp)?; }
             self.db.enqueue("audit",&serde_json::json!({"event":"certificate-revoked","fingerprint":id,"timestamp":timestamp}).to_string())?;
