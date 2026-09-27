@@ -11,21 +11,54 @@ pub struct CertificateListEntry {
     pub remain: i64,
 }
 
+pub const PAGE_SIZE: usize = 256;
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CertificatePage {
+    pub entries: Vec<CertificateListEntry>,
+    pub next_after: Option<i64>,
+    pub through: i64,
+}
 impl Database {
-    /// Read only list metadata; never load certificate or private-key contents.
     pub fn list_certificates(&self, intermediate: bool) -> Result<Vec<CertificateListEntry>> {
-        let mut query = self.conn.prepare(
-            "SELECT idx, cn, fingerprint,
-             valid,
-             not_before, MAX(0, (not_after - ?2 + 86399) / 86400)
-             FROM certificates
-             WHERE (?1 AND kind = 'intermediate')
-                OR (NOT ?1 AND kind IN ('server', 'client', 'server-and-client'))
-             ORDER BY idx",
-        )?;
-        Ok(query
+        let page = self.certificate_page(intermediate, 0, None)?;
+        if page.next_after.is_some() {
+            return Err("list requires pagination; update the client".into());
+        }
+        Ok(page.entries)
+    }
+    pub fn certificate_page(
+        &self,
+        intermediate: bool,
+        after: i64,
+        through: Option<i64>,
+    ) -> Result<CertificatePage> {
+        let through = match through {
+            Some(upper) => upper,
+            None => {
+                self.conn
+                    .query_row("SELECT COALESCE(MAX(idx),0) FROM certificates", [], |r| {
+                        r.get(0)
+                    })?
+            }
+        };
+        if after < 0 || through < after {
+            return Err("invalid list cursor".into());
+        }
+        let kinds = if intermediate {
+            "kind='intermediate'"
+        } else {
+            "kind IN ('server','client','server-and-client')"
+        };
+        let mut query = self.conn.prepare(&format!(
+            "SELECT idx,cn,fingerprint,valid,not_before,MAX(0,(not_after-?1+86399)/86400) FROM certificates WHERE {kinds} AND idx>?2 AND idx<=?3 ORDER BY idx LIMIT ?4"))?;
+        let mut entries = query
             .query_map(
-                rusqlite::params![intermediate, chrono::Utc::now().timestamp()],
+                rusqlite::params![
+                    chrono::Utc::now().timestamp(),
+                    after,
+                    through,
+                    PAGE_SIZE as i64 + 1
+                ],
                 |row| {
                     Ok(CertificateListEntry {
                         idx: row.get(0)?,
@@ -37,7 +70,18 @@ impl Database {
                     })
                 },
             )?
-            .collect::<std::result::Result<Vec<_>, _>>()?)
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let next_after = if entries.len() > PAGE_SIZE {
+            entries.pop();
+            entries.last().map(|entry| entry.idx)
+        } else {
+            None
+        };
+        Ok(CertificatePage {
+            entries,
+            next_after,
+            through,
+        })
     }
 }
 
@@ -49,6 +93,7 @@ mod tests {
     fn list_needs_only_metadata_and_excludes_other_certificate_kinds() {
         let directory = tempfile::tempdir().unwrap();
         let db = Database {
+            ocsp_issuers: Default::default(),
             worm: crate::storage::worm::Worm::new(directory.path()).unwrap(),
             conn: rusqlite::Connection::open_in_memory().unwrap(),
         };

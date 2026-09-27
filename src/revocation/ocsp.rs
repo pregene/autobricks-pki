@@ -10,11 +10,11 @@ use openssl::{
     sign::Signer,
     x509::X509,
 };
-struct Query {
+pub(super) struct Query {
     encoded: Vec<u8>,
-    algorithm: MessageDigest,
-    name_hash: Vec<u8>,
-    key_hash: Vec<u8>,
+    pub(super) algorithm: MessageDigest,
+    pub(super) name_hash: Vec<u8>,
+    pub(super) key_hash: Vec<u8>,
     serial: Vec<u8>,
 }
 fn queries(body: &[u8]) -> Result<(Vec<Query>, Option<Vec<u8>>)> {
@@ -117,11 +117,70 @@ fn queries(body: &[u8]) -> Result<(Vec<Query>, Option<Vec<u8>>)> {
 fn error(status: OcspResponseStatus) -> Result<Vec<u8>> {
     Ok(OcspResponse::create(status, None)?.to_der()?)
 }
+/// Cache public issuer identities; always query live certificate status by issuer/serial.
+pub fn respond_database(
+    body: &[u8],
+    database: &crate::storage::database::Database,
+    now: i64,
+) -> Result<Vec<u8>> {
+    let (items, nonce) = match queries(body) {
+        Ok(items) => items,
+        Err(_) => return error(OcspResponseStatus::MALFORMED_REQUEST),
+    };
+    let Some(fingerprint) = super::issuer_cache::select(database, &items)? else {
+        return error(OcspResponseStatus::UNAUTHORIZED);
+    };
+    let lineage = database.ca_lineage(&fingerprint)?;
+    let mut records = Vec::new();
+    let serials = items
+        .iter()
+        .map(|item| {
+            Ok(openssl::bn::BigNum::from_slice(&item.serial)?
+                .to_hex_str()?
+                .to_string())
+        })
+        .collect::<Result<Vec<String>>>()?;
+    for generation in &lineage {
+        if generation != &fingerprint {
+            records.push(database.metadata(generation)?);
+        }
+        for serial in &serials {
+            if let Some(record) = database.by_issuer_serial(generation, serial)? {
+                records.push(record);
+            }
+        }
+    }
+    records.push(database.get(&fingerprint)?);
+    respond_parsed(items, nonce, &records, now)
+}
+
+fn matches_issuer(queries: &[Query], cert: &X509) -> Result<bool> {
+    let name = cert.subject_name().to_der()?;
+    let spki = cert.public_key()?.public_key_to_der()?;
+    let mut spki = der::content(&spki, 0x30)?;
+    read(&mut spki)?;
+    let (_, bits, _) = read(&mut spki)?;
+    let bits = bits.get(1..).ok_or("invalid public key")?;
+    Ok(queries.iter().all(|q| {
+        hash(q.algorithm, &name).is_ok_and(|d| d.as_ref() == q.name_hash)
+            && hash(q.algorithm, bits).is_ok_and(|d| d.as_ref() == q.key_hash)
+    }))
+}
+
 pub fn respond(body: &[u8], certificates: &[Certificate], now: i64) -> Result<Vec<u8>> {
     let (queries, nonce) = match queries(body) {
         Ok(q) => q,
         Err(_) => return error(OcspResponseStatus::MALFORMED_REQUEST),
     };
+    respond_parsed(queries, nonce, certificates, now)
+}
+
+fn respond_parsed(
+    queries: Vec<Query>,
+    nonce: Option<Vec<u8>>,
+    certificates: &[Certificate],
+    now: i64,
+) -> Result<Vec<u8>> {
     let mut selected = None;
     for ca in certificates
         .iter()
@@ -129,16 +188,7 @@ pub fn respond(body: &[u8], certificates: &[Certificate], now: i64) -> Result<Ve
         .filter(|c| c.kind == "intermediate")
     {
         let cert = X509::from_pem(ca.pem.as_bytes())?;
-        let name = cert.subject_name().to_der()?;
-        let spki = cert.public_key()?.public_key_to_der()?;
-        let mut spki = der::content(&spki, 0x30)?;
-        read(&mut spki)?;
-        let (_, bits, _) = read(&mut spki)?;
-        let bits = bits.get(1..).ok_or("invalid public key")?;
-        if queries.iter().all(|q| {
-            hash(q.algorithm, &name).is_ok_and(|d| d.as_ref() == q.name_hash)
-                && hash(q.algorithm, bits).is_ok_and(|d| d.as_ref() == q.key_hash)
-        }) {
+        if matches_issuer(&queries, &cert)? {
             selected = Some((ca, cert));
             break;
         }

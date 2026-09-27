@@ -18,8 +18,8 @@ The handover state and download confirmation are storage and protocol contracts;
 2. The holder downloads the replacement archive using its fingerprint and access token. The CLI writes the entire archive and successfully synchronizes the local file before confirming completion.
 3. The CLI sends completion confirmation through the Unix socket with the replacement fingerprint and its saved token; the daemon forwards it through management TLS. This is part of the download workflow, not a separate user command. The current protocol has no completion operation; its handler and CLI submission are required for this contract.
 4. The server loads the replacement and its recorded predecessor. It does not accept an arbitrary old fingerprint supplied by the caller. Initial-issuance downloads with no predecessor require no automatic revocation.
-5. In one SQLite transaction, the server changes the predecessor from `SUPERSEDED` to `REVOKED`, records the revocation time, updates signed CRLs, and queues the revocation audit event. OCSP then reports the old certificate as `REVOKED`. The replacement remains `VALID`.
-6. The server acknowledges completion after commit. TrueLog delivery failure leaves the revocation event pending without undoing the state change.
+5. In one SQLite transaction, the server changes the predecessor from `SUPERSEDED` to `REVOKED`, records the revocation time, and queues CRL publication and the revocation audit event. OCSP then reports the old certificate as `REVOKED`. The replacement remains `VALID`.
+6. After commit, the server attempts immediate CRL publication and acknowledges completion. CRL or TrueLog delivery failure leaves work pending without undoing revocation.
 
 If writing or synchronizing the archive fails, the CLI does not confirm. If confirmation is lost, retry confirmation with the same replacement identity and token; do not create another replacement. If the first confirmation already committed, return success without a second revocation event. Confirmation must support retry using the already saved archive without overwriting it. The old certificate remains `SUPERSEDED` while confirmation is absent, subject to expiration, administrator revocation, and the mandatory seven-day deadline of an associated Intermediate CA handover.
 
@@ -87,8 +87,8 @@ A seven-day certificate renews for seven days; a 47-day certificate renews for 4
 3. Load the stored leaf profile and the original issuer. Select the Intermediate CA generation with the same issuer CN and the greatest `not_after`.
 4. Set the new validity start to the current time and its end to that start plus the existing certificate's full duration. Reject an interval outside the selected issuer's validity; no automatic shortening occurs.
 5. Start a SQLite transaction and validate the preserved profile. Generate a new P-256 key, random serial number, signed certificate, fingerprint, and access token. Renewal bypasses the new-issuance CN uniqueness rejection.
-6. Store the replacement certificate, encrypted key, profile, and token hash. Queue WORM archival, a `certificate-created` audit event, and server DNS registration. Commit the transaction.
-7. Attempt external delivery and return `certificate`, `download_token`, and `integrations_pending`, using the same result format as creation.
+6. Write the replacement certificate and encrypted key to WORM. Store their paths, metadata, profile, token hash, and CA-to-leaf relation in SQLite. Queue a `certificate-created` audit event and server DNS registration; commit the transaction.
+7. Return `certificate`, `download_token`, and `integrations_pending`, using the same result format as creation. The background worker delivers queued audit and DNS operations.
 
 | Property | Renewal behavior |
 | --- | --- |
@@ -107,14 +107,16 @@ sequenceDiagram
     participant Local as Local client daemon
     participant PKI as abpkid
     participant DB as SQLite
-    participant External as WORM / TrueLog / DNS
+    participant WORM as WORM mount
+    participant External as TrueLog / DNS
     Holder->>Local: Socket renew request with fingerprint and saved token
     Local->>PKI: Forward through TLS
     PKI->>DB: Load certificate, profile, and issuer generations
     PKI->>PKI: Check token, revocation, renewal window, issuer bounds
     PKI->>PKI: Generate new key and certificate
-    PKI->>DB: Store replacement and outbox in one transaction
-    PKI->>External: Attempt artifact, audit, and DNS delivery
+    PKI->>WORM: Write certificate and encrypted key
+    PKI->>DB: Store replacement metadata, paths, relation, and outbox; commit
+    PKI->>External: Background worker delivers audit and DNS operations
     PKI-->>Local: New certificate, new token, delivery state
     Local-->>Holder: Result through Unix socket; CLI saves new token
     Holder->>Local: Socket download request with new fingerprint and saved token

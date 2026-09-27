@@ -11,4 +11,5 @@ pub enum Status {
 
 pub(crate) mod der;
 
+pub(crate) mod issuer_cache;
 mod service;

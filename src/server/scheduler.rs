@@ -25,7 +25,11 @@ impl Service {
     }
 
     pub fn refresh_status_and_deliver(&self) -> Result<()> {
-        let mut failure = self.reconcile().err();
+        let mut failure = if self.background_delivery {
+            self.reconcile_crls().err()
+        } else {
+            self.reconcile().err()
+        };
         if let Err(error) = self.refresh_expired_crls() {
             failure = Some(error);
         }

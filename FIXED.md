@@ -1,0 +1,22 @@
+# Issue corrections
+
+| No. | Discovery date | Current version | Issue | Fix version | Fix date |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 2026-09-28 | 1.0.102 | Single-certificate lookup loaded all files and keys; replaced with a fingerprint-filtered query and target-only loading. | 1.0.105 | 2026-09-28 |
+| 2 | 2026-09-28 | 1.0.102 | Issuer lookup filtered all certificates; replaced with exact fingerprint lookup followed by CN lookup with ordering and LIMIT 1. | 1.0.105 | 2026-09-28 |
+| 3 | 2026-09-28 | 1.0.102 | Root lookup loaded all certificates; replaced with a kind-filtered identifier query and separate public/signing access. | 1.0.105 | 2026-09-28 |
+| 4 | 2026-09-28 | 1.0.102 | TLS and chain lookup repeated full loading; now load only the TLS signing key and public issuer/root certificates. | 1.0.105 | 2026-09-28 |
+| 5 | 2026-09-28 | 1.0.102 | Status checks loaded all files and keys; now select revoked_at by fingerprint without file I/O. | 1.0.105 | 2026-09-28 |
+| 6 | 2026-09-28 | 1.0.102 | OCSP loaded all files and keys; now matches public CA candidates, queries lineage-scoped issuer/serial metadata, and loads only the selected signing key. | 1.0.105 | 2026-09-28 |
+| 7 | 2026-09-28 | 1.0.102 | DNS collision checks loaded certificate/key files; now read server profiles only and skip this work for client-only issuance. | 1.0.105 | 2026-09-28 |
+| 8 | 2026-09-28 | 1.0.102 | Renewal selection loaded unrelated files; now uses SQL-filtered due CA metadata, exact leaf metadata, and targeted issuer selection. | 1.0.105 | 2026-09-28 |
+| 9 | 2026-09-28 | 1.0.102 | CRL/audit processing loaded unrelated files; now uses lineage public CAs and revoked serial metadata, with a Root identifier-only audit lookup. | 1.0.105 | 2026-09-28 |
+| 10 | 2026-09-28 | 1.0.105 | High: external DNS/TrueLog delivery moved to a dedicated worker; I/O runs outside the service lock. | 1.0.108 | 2026-09-28 |
+| 11 | 2026-09-28 | 1.0.105 | High: server TLS configuration is cached by certificate fingerprint; every connection retains metadata revocation/expiry checks. | 1.0.108 | 2026-09-28 |
+| 12 | 2026-09-28 | 1.0.105 | High: client trust configuration is reused and relays are bounded to 16 concurrent requests. TCP connections remain per-request. | 1.0.108 | 2026-09-28 |
+| 13 | 2026-09-28 | 1.0.105 | High: partial pending-work indexes and 64-row cursor batches replace unbounded external polling; completed rows remain retained. | 1.0.108 | 2026-09-28 |
+| 14 | 2026-09-28 | 1.0.105 | High: CRL tasks are coalesced by renewal lineage; revocation and expiry refresh publish once for linked generations. | 1.0.108 | 2026-09-28 |
+| 15 | 2026-09-28 | 1.0.105 | Medium: OCSP caches public issuer identity hashes, refreshes on CA generation changes, parses each request once, and queries live status. | 1.0.111 | 2026-09-28 |
+| 16 | 2026-09-28 | 1.0.105 | Medium: non-unique DNS expression indexes replace profile scans; same-CN/DNS renewal remains allowed and legacy aliases remain checked. | 1.0.111 | 2026-09-28 |
+| 17 | 2026-09-28 | 1.0.105 | Medium: idx cursor pages return at most 256 certificates and CLI output streams each page with a fixed upper bound. | 1.0.111 | 2026-09-28 |
+| 18 | 2026-09-28 | 1.0.105 | Medium: ABP1 length-prefixed framing sends raw bodies without JSON byte-array expansion; legacy requests receive legacy replies. | 1.0.111 | 2026-09-28 |

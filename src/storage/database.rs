@@ -24,6 +24,7 @@ pub struct Certificate {
     pub download_hash: Option<Vec<u8>>,
 }
 pub struct Database {
+    pub(crate) ocsp_issuers: std::cell::RefCell<crate::revocation::issuer_cache::IssuerCache>,
     pub(crate) conn: Connection,
     pub(crate) worm: crate::storage::worm::Worm,
 }
@@ -65,6 +66,7 @@ impl Database {
         conn.prepare("SELECT certificate_path, private_key_path, valid FROM certificates LIMIT 0")?;
         conn.prepare("SELECT crl_path FROM crls LIMIT 0")?;
         let database = Self {
+            ocsp_issuers: Default::default(),
             conn,
             worm: crate::storage::worm::Worm::new(&worm)?,
         };
@@ -113,59 +115,14 @@ impl Database {
                 if c.revoked_at.is_some() { "REVOKED" } else { "VALID" }
             ],
         )?;
+        if c.kind == "intermediate" {
+            self.ocsp_issuers.borrow_mut().generation = None;
+        }
         if let Some(issuer) = &c.issuer {
             self.conn.execute("INSERT INTO intermediate_leaf(intermediate_idx,leaf_idx) SELECT issuer.idx,leaf.idx FROM certificates issuer,certificates leaf WHERE issuer.fingerprint=? AND issuer.kind='intermediate' AND leaf.fingerprint=? AND leaf.kind IN ('server','client','server-and-client')", params![issuer,c.fingerprint])?;
         }
         Ok(())
     }
-    pub fn all(&self) -> Result<Vec<Certificate>> {
-        let mut q=self.conn.prepare("SELECT fingerprint,cn,kind,issuer,serial,not_before,not_after,certificate_path,private_key_path,revoked_at,profile,download_hash FROM certificates ORDER BY idx")?;
-        let mut certificates = q
-            .query_map([], |r| {
-                Ok(Certificate {
-                    fingerprint: r.get(0)?,
-                    cn: r.get(1)?,
-                    kind: r.get(2)?,
-                    issuer: r.get(3)?,
-                    serial: r.get(4)?,
-                    validity: Validity {
-                        not_before: r.get(5)?,
-                        not_after: r.get(6)?,
-                    },
-                    pem: r.get(7)?,
-                    key_pem: r.get(8)?,
-                    revoked_at: r.get(9)?,
-                    profile: r.get(10)?,
-                    download_hash: r.get(11)?,
-                })
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        for certificate in &mut certificates {
-            certificate.pem = self.worm.read_text(&certificate.pem)?;
-            certificate.key_pem = self.decrypt_key(&self.worm.read_text(&certificate.key_pem)?)?;
-        }
-        Ok(certificates)
-    }
-    pub fn get(&self, id: &str) -> Result<Certificate> {
-        self.all()?
-            .into_iter()
-            .find(|c| c.fingerprint == id)
-            .ok_or_else(|| "certificate not found".into())
-    }
-    pub fn issuer(&self, id: &str) -> Result<Certificate> {
-        let all = self.all()?;
-        if let Some(c) = all
-            .iter()
-            .find(|c| c.fingerprint == id && c.kind == "intermediate")
-        {
-            return Ok(c.clone());
-        }
-        all.into_iter()
-            .filter(|c| c.cn == id && c.kind == "intermediate")
-            .max_by_key(|c| c.validity.not_after)
-            .ok_or_else(|| "issuer not found".into())
-    }
-
     pub fn enqueue(&self, kind: &str, payload: &str) -> Result<()> {
         self.conn.execute(
             "INSERT INTO outbox(kind,payload) VALUES(?,?)",
@@ -174,11 +131,46 @@ impl Database {
         Ok(())
     }
     pub fn pending(&self) -> Result<Vec<(i64, String, String)>> {
-        let mut q = self
-            .conn
-            .prepare("SELECT id,kind,payload FROM outbox WHERE done=0 ORDER BY id")?;
-        Ok(q.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        self.pending_after(0)
+    }
+    pub fn pending_after(&self, after: i64) -> Result<Vec<(i64, String, String)>> {
+        let mut q = self.conn.prepare(
+            "SELECT id,kind,payload FROM outbox WHERE done=0 AND id>? ORDER BY id LIMIT 64",
+        )?;
+        Ok(
+            q.query_map([after], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                .collect::<std::result::Result<Vec<_>, _>>()?,
+        )
+    }
+    pub fn pending_external_after(&self, after: i64) -> Result<Vec<(i64, String, String)>> {
+        let mut q = self.conn.prepare(
+            "SELECT id,kind,payload FROM outbox WHERE done=0 AND kind<>'crl' AND id>? ORDER BY id LIMIT 64",
+        )?;
+        Ok(
+            q.query_map([after], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                .collect::<std::result::Result<Vec<_>, _>>()?,
+        )
+    }
+    pub fn pending_crls(&self) -> Result<Vec<String>> {
+        let mut q = self.conn.prepare(
+            "SELECT DISTINCT payload FROM outbox WHERE done=0 AND kind='crl' ORDER BY payload LIMIT 64",
+        )?;
+        Ok(q.query_map([], |r| r.get(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+    pub fn has_pending(&self) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM outbox WHERE done=0)",
+            [],
+            |r| r.get(0),
+        )?)
+    }
+    pub fn is_pending(&self, id: i64) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM outbox WHERE id=? AND done=0)",
+            [id],
+            |r| r.get(0),
+        )?)
     }
     pub fn complete(&self, id: i64) -> Result<()> {
         self.conn

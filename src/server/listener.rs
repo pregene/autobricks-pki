@@ -37,6 +37,7 @@ pub fn serve(
     management_listener.set_nonblocking(true)?;
     https_listener.set_nonblocking(true)?;
     let active = Arc::new(AtomicUsize::new(0));
+    let tls_cache = Arc::new(super::tls_cache::TlsCache::default());
     loop {
         let mut accepted = false;
         for (listener, kind) in [
@@ -66,11 +67,12 @@ pub fn serve(
             }
             let guard = Active(active.clone());
             let service = service.clone();
+            let tls_cache = tls_cache.clone();
             std::thread::Builder::new()
                 .name("abpkid-connection".into())
                 .spawn(move || {
                     let _guard = guard;
-                    if handle(socket, kind, service).is_err() {
+                    if handle(socket, kind, service, tls_cache).is_err() {
                         eprintln!("TLS connection failed");
                     }
                 })?;
@@ -81,25 +83,32 @@ pub fn serve(
     }
 }
 
-fn handle(socket: TcpStream, kind: Kind, service: Arc<Mutex<Service>>) -> Result<()> {
+fn handle(
+    socket: TcpStream,
+    kind: Kind,
+    service: Arc<Mutex<Service>>,
+    cache: Arc<super::tls_cache::TlsCache>,
+) -> Result<()> {
     socket.set_nonblocking(false)?;
-    let config = service
-        .lock()
-        .map_err(|_| "service lock failed")?
-        .tls_config()?;
+    let config = {
+        let service = service.lock().map_err(|_| "service lock failed")?;
+        cache.config(&service)?
+    };
     let mut stream = tls::DeadlineStream::new(socket, config)?;
     match kind {
         Kind::Management => {
-            let message: Message = management::read_frame(&mut stream, MAX_BODY)?;
+            let (message, format): (Message, _) =
+                management::read_frame_with_format(&mut stream, MAX_BODY)?;
             let request = message.into_request()?;
             let response = routes::dispatch(
                 &*service.lock().map_err(|_| "service lock failed")?,
                 request,
             );
-            management::write_frame(
+            management::write_frame_with_format(
                 &mut stream,
                 &Reply::from(response),
                 management::MAX_RESPONSE,
+                format,
             )?;
         }
         Kind::Https => match Request::read(&mut stream) {

@@ -26,9 +26,9 @@ The operation accepts a leaf fingerprint rather than CN, because renewal generat
 2. Start a SQLite `BEGIN IMMEDIATE` transaction and find the certificate. Reject an unknown fingerprint or a Root/Intermediate CA target.
 3. If the leaf is already revoked, return success without changing its original revocation timestamp or creating another revocation event.
 4. Set `revoked_at` to the current Unix UTC timestamp.
-5. Regenerate signed CRLs for Intermediate CA generations sharing the issuer CN. Each CRL receives an incremented CRL number and a fixed seven-day validity period.
-6. Queue the `certificate-revoked` audit event and commit the revocation state, CRLs, and outbox entry atomically in SQLite.
-7. Attempt pending external delivery and return `{"status":"REVOKED"}`. TrueLog submission is retried from the outbox if delivery fails.
+5. Queue CRL publication for the issuer renewal lineage and the `certificate-revoked` audit event.
+6. Commit the revocation state and outbox entries atomically in SQLite. OCSP immediately observes the revoked state.
+7. Attempt immediate CRL publication to WORM with an incremented number and a fixed seven-day validity period. Publication failure leaves a retry pending without reversing revocation. Return `{"status":"REVOKED"}`; the background worker delivers the audit event through TrueLog.
 
 ```mermaid
 sequenceDiagram
@@ -43,11 +43,11 @@ sequenceDiagram
     PKI->>DB: Find leaf and check revocation state
     alt First revocation
         PKI->>DB: Set revoked_at
-        PKI->>PKI: Generate signed CRLs
-        PKI->>DB: Store CRLs and audit outbox entry
+        PKI->>DB: Queue CRL publication and audit entry
     end
     PKI->>DB: Commit
-    PKI->>Log: Attempt pending audit submission
+    PKI->>PKI: Attempt CRL publication; retain failed work for retry
+    PKI->>Log: Background worker submits audit event
     PKI-->>Local: REVOKED
     Local-->>Admin: Result through Unix socket
 ```
@@ -57,7 +57,7 @@ sequenceDiagram
 | Component | Effect |
 | --- | --- |
 | SQLite | Retains the leaf and records its revocation timestamp. |
-| CRL | Updated CRLs become available immediately after commit through public HTTPS. Previously cached CRLs remain subject to client refresh behavior. |
+| CRL | CRL publication is attempted immediately after revocation commits; failed publication remains pending for retry. Previously cached CRLs remain subject to client refresh behavior. |
 | OCSP and `check` | Queries observe the committed revoked status. |
 | Renewal | The revoked fingerprint cannot be renewed. |
 | Other renewal generations | Remain independent; revoking one fingerprint does not revoke every certificate sharing its CN. |
@@ -70,7 +70,7 @@ Revocation can target an expired leaf. New issuance still cannot reuse its reser
 
 ## Failure and retry behavior
 
-Invalid credentials, unknown targets, and CA targets are rejected. Failure to persist the revocation or generate/store the CRLs rolls back the transaction, including its audit outbox entry.
+Invalid credentials, unknown targets, and CA targets are rejected. Failure to persist revocation rolls back the SQLite transaction, including its outbox entries. CRL generation or WORM publication failure occurs after that commit and cannot reverse revocation. OCSP continues reporting the committed revoked status.
 
 Audit delivery failure does not undo committed revocation. The current success response does not include an audit-delivery flag. Repeating an authorized request for an already revoked certificate is safe and returns `REVOKED`, including after a lost response.
 

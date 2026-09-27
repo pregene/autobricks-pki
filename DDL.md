@@ -56,6 +56,23 @@ CREATE TABLE IF NOT EXISTS intermediate_leaf (
 CREATE INDEX IF NOT EXISTS intermediate_leaf_issuer
     ON intermediate_leaf (intermediate_idx, leaf_idx);
 
+CREATE INDEX IF NOT EXISTS certificates_kind_cn_expiry
+    ON certificates (kind, cn, not_after DESC, idx DESC);
+CREATE INDEX IF NOT EXISTS certificates_kind_expiry
+    ON certificates (kind, not_after);
+CREATE INDEX IF NOT EXISTS certificates_predecessor
+    ON certificates (previous_certificate_idx);
+CREATE INDEX IF NOT EXISTS certificates_lower_cn
+    ON certificates (lower(cn));
+
+CREATE INDEX IF NOT EXISTS certificates_dns_name
+    ON certificates (json_extract(profile,'$.dns_names[0]') COLLATE NOCASE)
+    WHERE kind IN ('server','server-and-client');
+CREATE INDEX IF NOT EXISTS certificates_dns_aliases
+    ON certificates (idx)
+    WHERE kind IN ('server','server-and-client') AND json_array_length(profile,'$.dns_names')>1;
+CREATE INDEX IF NOT EXISTS certificates_kind_idx ON certificates (kind, idx);
+
 CREATE TABLE IF NOT EXISTS crls (
     idx INTEGER PRIMARY KEY AUTOINCREMENT,
     issuer INTEGER NOT NULL UNIQUE REFERENCES certificates(idx),
@@ -70,6 +87,11 @@ CREATE TABLE IF NOT EXISTS outbox (
     payload TEXT NOT NULL,
     done INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE INDEX IF NOT EXISTS outbox_pending_id
+    ON outbox (id) WHERE done=0;
+CREATE INDEX IF NOT EXISTS outbox_pending_kind_payload
+    ON outbox (kind, payload) WHERE done=0;
 ```
 
 These are ordinary SQLite rowid tables. The CA-to-leaf lookup uses the explicit composite index shown above, in addition to primary-key and unique indexes. There are no triggers, views, or cascading foreign-key actions. Certificate lifecycle values are restricted by a `CHECK` constraint. `outbox.id` aliases the rowid and does not use `AUTOINCREMENT`.
@@ -285,6 +307,10 @@ Publication writes a new immutable WORM file before updating all issuer rows in 
 | `crl` | Issuer certificate fingerprint | Regenerates the issuer CRL after committed revocation; failure leaves the certificate revoked and publication pending. |
 | `dns` | `name`, `type` (`A` or `AAAA`), `ip` | Registers a record through Autobricks DNS. |
 
+Pending-work partial indexes exclude completed rows. The running server reads external operations in batches of at most 64 rows using an increasing ID cursor. Failed rows do not prevent later rows from being attempted; the cursor resets after reaching the end of a pass, with a 30-second pause before the next pass. Completed rows remain available and are not deleted.
+
+DNS and TrueLog delivery run in a dedicated worker. The service lock is held only while preparing work or recording completion, not while waiting for either external service. CRL retries run separately in maintenance, so a slow external service does not delay their polling. A revocation queues one CRL task per CA renewal lineage; publication updates every generation and completes pending CRL tasks for that lineage in the same transaction.
+
 Failed operations remain pending. External delivery and SQLite completion are not one atomic transaction; a committed external write followed by a lost acknowledgement can be retried. TrueLog manages audit files and retention. The outbox stores delivery state and does not replace TrueLog audit storage.
 
 ## Audit history schema
@@ -314,7 +340,7 @@ CREATE INDEX IF NOT EXISTS audit_event_time
     ON audit (event, occurred_at, idx);
 ```
 
-`idx` is the internal automatically incremented primary key. Certificate relationships use integer keys, not fingerprints. `event_id` uses the existing value produced by `Service::reconcile` in [delivery.rs](src/storage/delivery.rs): `<root-certificate-fingerprint>:<outbox.id>`. Both inputs already exist when the queued event is submitted to TrueLog. The unique constraint identifies the corresponding confirmed event locally. There is no separate request identifier or request-grouping index.
+`idx` is the internal automatically incremented primary key. Certificate relationships use integer keys, not fingerprints. `event_id` uses the existing value produced by the delivery worker in [delivery.rs](src/server/delivery.rs): `<root-certificate-fingerprint>:<outbox.id>`. Both inputs already exist when the queued event is submitted to TrueLog. The unique constraint identifies the corresponding confirmed event locally. There is no separate request identifier or request-grouping index.
 
 ```mermaid
 erDiagram
@@ -409,7 +435,7 @@ Checksums are preserved exactly as returned by TrueLog. PKI does not substitute 
 
 | Data | Concrete source | Current runtime boundary |
 | --- | --- | --- |
-| Event identifier | `Service::reconcile`: Root CA fingerprint and the pending `outbox.id`. | Already added to the submitted TrueLog event. No request identifier exists. |
+| Event identifier | Delivery preparation: Root CA fingerprint and the pending `outbox.id`. | Already added to the submitted TrueLog event. No request identifier exists. |
 | Event type and time | Issuance/revocation/renewal operation and server `now()`. | Creation and revocation already enqueue events. Leaf renewal currently enqueues `certificate-created`; a distinct renewal event requires passing the operation type and original certificate from `Service::renew`. |
 | Certificate references | `certificates.idx`, looked up using the certificate fingerprint held by the operation. | Available in SQLite. Renewal holds both the old and new certificates, so both references can be resolved. |
 | OCSP peer IP | Socket address returned by `TcpListener::accept`, or `TcpStream::peer_addr()` before TLS wrapping. | `listener.rs` currently discards the accepted address and does not pass it to the route handler. The address must be carried from the listener to OCSP event creation. It is not available from the existing `Request` object. |
@@ -438,3 +464,10 @@ TrueLog owns the immutable audit log files and their retention. SQLite `audit` p
 New databases use schema version `1`. Initialization creates the tables and the private-key encryption password. Existing certificate records without their encryption password are rejected. Database opening does not convert older tables or rewrite stored keys.
 
 CA hierarchy creation and installation settings are populated separately by service initialization. Executing the table DDL alone does not create an initialized PKI service.
+
+
+## Indexed DNS and list access
+
+The DNS-name expression index is non-unique. New issuance checks DNS collisions using the indexed first name; renewal retains the same CN and DNS SAN without invoking the new-issuance collision check. Multi-name profiles use a partial index to limit alias checks to certificates with additional names. No derived DNS table or duplicated profile data is stored.
+
+Certificate lists use `idx > after AND idx <= through`, ordered by `idx`, with at most 256 returned rows. One additional row determines whether another page exists. The initial upper bound excludes later inserts; this is not a transaction snapshot of changing certificate status. No certificate or key file is read for list pages.

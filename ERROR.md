@@ -210,7 +210,7 @@ The wire response remains DER using the protocol rules in [OCSP.md](OCSP.md). Th
 
 ## Commit and delivery boundaries
 
-A successful certificate transaction has result `200` even if subsequent WORM, DNS, or TrueLog delivery remains pending. Issuance and renewal expose this through `integrations_pending`. A delivery failure does not rewrite committed issuance as `500` or trigger another issuance.
+A successful certificate transaction has result `200` even if subsequent DNS or TrueLog delivery remains pending. Issuance and renewal expose this through `integrations_pending`. A delivery failure does not rewrite committed issuance as `500` or trigger another issuance.
 
 Audit rows are stored only after TrueLog confirmation. When submission fails, the queued event retains its original operation result for retry. TrueLog success confirms audit delivery; it does not determine whether the recorded PKI operation succeeded. For example, TrueLog can successfully store an event whose operation result is `403` or `500`.
 

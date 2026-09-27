@@ -80,7 +80,7 @@ The Root CA has no defined expiration. Intermediate CA default and maximum valid
 
 ## Key storage
 
-Version 1.0 uses software cryptography with P-256 keys and SHA-256 signatures. The storage design keeps encrypted private-key files on WORM and their paths, encryption password, and salted administrator password hash in SQLite. Current code still duplicates key PEM in SQLite; see the storage implementation boundary. The service has no user accounts or user management.
+Version 1.0 uses software cryptography with P-256 keys and SHA-256 signatures. The storage design keeps encrypted private-key files on WORM and their paths, encryption password, and salted administrator password hash in SQLite. Certificate, private-key, and CRL PEM contents are stored only on WORM. The service has no user accounts or user management.
 
 [Key storage](docs/key-storage.md)
 

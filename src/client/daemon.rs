@@ -10,6 +10,10 @@ use std::{
         net::{UnixListener, UnixStream},
     },
     path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 
@@ -55,7 +59,7 @@ pub fn serve(config_path: &Path) -> Result<()> {
     let origin = config.origin()?;
     // Load the OS trust bundle once at service startup; never disable TLS verification.
     let trust = fs::read(&config.ca)?;
-    crate::transport::tls::client(&trust)?;
+    let tls = crate::transport::tls::client(&trust)?;
     let path = Path::new(&config.unix_socket);
     if let Ok(metadata) = fs::symlink_metadata(path) {
         if !metadata.file_type().is_socket() {
@@ -68,34 +72,70 @@ pub fn serve(config_path: &Path) -> Result<()> {
     }
     let listener = UnixListener::bind(path)?;
     fs::set_permissions(path, fs::Permissions::from_mode(0o660))?;
+    let config = Arc::new(config);
+    let origin = Arc::new(origin);
+    let active = Arc::new(AtomicUsize::new(0));
     for connection in listener.incoming() {
         let mut stream = connection?;
         stream.set_read_timeout(Some(Duration::from_secs(10)))?;
         stream.set_write_timeout(Some(Duration::from_secs(10)))?;
-        let result = relay(&mut stream, &config, &origin, &trust);
-        let reply = match result {
-            Ok(body) => Reply {
-                status: "200 OK".into(),
-                content_type: "application/octet-stream".into(),
-                body,
-            },
-            Err(error) => Reply {
-                status: "502 Bad Gateway".into(),
-                content_type: "text/plain".into(),
-                body: error.to_string().into_bytes(),
-            },
-        };
-        // A disconnected local caller must not stop the daemon.
-        let _ = management::write_frame(&mut stream, &reply, management::MAX_RESPONSE);
+        if active
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                (n < 16).then_some(n + 1)
+            })
+            .is_err()
+        {
+            // Reject promptly without blocking other callers on an unread local socket.
+            continue;
+        }
+        let guard = Active(active.clone());
+        let config = config.clone();
+        let origin = origin.clone();
+        let tls = tls.clone();
+        std::thread::Builder::new()
+            .name("abpki-client-relay".into())
+            .spawn(move || {
+                let _guard = guard;
+                let parsed = management::read_frame_with_format::<Message>(
+                    &mut stream,
+                    crate::transport::request::MAX_BODY,
+                );
+                let (result, format) = match parsed {
+                    Ok((message, format)) => (relay(message, &config, &origin, tls), format),
+                    Err(error) => (Err(error), management::Format::Binary),
+                };
+                let reply = match result {
+                    Ok(body) => Reply {
+                        status: "200 OK".into(),
+                        content_type: "application/octet-stream".into(),
+                        body,
+                    },
+                    Err(error) => Reply {
+                        status: "502 Bad Gateway".into(),
+                        content_type: "text/plain".into(),
+                        body: error.to_string().into_bytes(),
+                    },
+                };
+                let _ = management::write_frame_with_format(
+                    &mut stream,
+                    &reply,
+                    management::MAX_RESPONSE,
+                    format,
+                );
+            })?;
     }
     Ok(())
 }
-fn relay(stream: &mut UnixStream, config: &Config, origin: &str, trust: &[u8]) -> Result<Vec<u8>> {
-    let message: Message = management::read_frame(stream, crate::transport::request::MAX_BODY)?;
+fn relay(
+    message: Message,
+    config: &Config,
+    origin: &str,
+    tls: Arc<rustls::ClientConfig>,
+) -> Result<Vec<u8>> {
     if message.method == "GET" && message.path == "/root" {
-        return super::request(
+        return super::request_with_config(
             &super::public_origin(origin, config.https_port)?,
-            trust,
+            tls,
             "GET",
             "/root",
             &[],
@@ -103,9 +143,9 @@ fn relay(stream: &mut UnixStream, config: &Config, origin: &str, trust: &[u8]) -
         );
     }
     let request = message.into_request()?;
-    super::management_request(
+    super::management_request_with_config(
         origin,
-        trust,
+        tls,
         &request.method,
         &request.path,
         &request.body,
@@ -114,4 +154,11 @@ fn relay(stream: &mut UnixStream, config: &Config, origin: &str, trust: &[u8]) -
             .get("authorization")
             .and_then(|v| v.strip_prefix("Bearer ")),
     )
+}
+
+struct Active(Arc<AtomicUsize>);
+impl Drop for Active {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Release);
+    }
 }

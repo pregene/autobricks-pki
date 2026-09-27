@@ -22,7 +22,7 @@ Both repository directories are ignored by Git. Service installation paths are s
 | `/etc/autobricks-pki/` | Service configuration directory | Root-owned (`0750`) |
 | `/etc/autobricks-pki/abpkid.env` | Environment settings supplied to the process by systemd | Root-owned (`0600`) |
 | `/var/lib/autobricks-pki/` | Mutable PKI state directory | Owned by the autobricks-pki operating-system account (`0700`) |
-| `/var/lib/autobricks-pki/abpki.sqlite` | Certificates, private keys, revocation state, password hash, key encryption password, token hashes, and pending delivery records | Owned by the service account (`0600`) |
+| `/var/lib/autobricks-pki/abpki.sqlite` | Certificate/CRL metadata and WORM paths, revocation state, password hash, key encryption password, token hashes, and pending delivery records | Owned by the service account (`0600`) |
 | `/var/lib/autobricks-pki/install.json` | Installation domain and DNS registration IP for reconfiguration | Service account (`0600`) |
 | `/etc/autobricks-pki/account-owned` | Marks the service account as package-owned for purge | Root-owned |
 | `/var/lib/autobricks-pki/abpki.sqlite-journal` | SQLite rollback journal created and removed during database transactions | Managed by SQLite in the protected state directory |
@@ -119,7 +119,7 @@ The Root CA public certificate is stored under `root/`. Intermediate CA public c
 
 PKI requests mode `0700` for archive directories and `0600` for files. TrueLog WORM exposes its configured writer ownership with directory mode `0770` and file mode `0660`; matching root owner/group permissions are accepted. World-accessible artifacts are rejected. Delivery retries accept matching bytes and append only a missing suffix. Conflicting content and symlink paths are rejected. WORM retention is enforced by the filesystem; PKI does not rotate or delete artifacts. Existing archived files are not moved or renamed.
 
-Download archives are constructed in memory. CRLs remain in SQLite and are served through HTTPS. OCSP responses are generated for requests without a persistent response directory.
+Download archives are constructed in memory. CRL PEM files are read from their published WORM paths and served through HTTPS. OCSP responses are generated for requests without a persistent response directory.
 
 ## Logs and runtime files
 
@@ -141,13 +141,13 @@ The archive contains exactly `certificate.pem`, `private-key.pem`, and `trust-ch
 
 ## Backup artifacts
 
-SQLite backup copies may be placed on WORM as separate artifacts. A database backup includes encrypted private keys, their encryption password, and credential hashes and requires corresponding access restrictions. The server does not currently create automatic backups or manage a backup directory. The live database and rollback journal remain outside WORM even when backup artifacts are archived there.
+SQLite backup copies may be placed on WORM as separate artifacts. A database backup includes artifact paths, the private-key encryption password, and credential hashes and requires corresponding access restrictions. The server does not currently create automatic backups or manage a backup directory. The live database and rollback journal remain outside WORM even when backup artifacts are archived there.
 
 ```mermaid
 flowchart TD
     Unit[systemd service] --> Binary[/usr/bin/abpkid]
     Config[/etc/autobricks-pki/abpkid.env] -->|Environment| Binary
-    Binary -->|Mutable state and keys| DB[/var/lib/autobricks-pki/abpki.sqlite]
+    Binary -->|Metadata and secrets| DB[/var/lib/autobricks-pki/abpki.sqlite]
     DB --> Journal[SQLite rollback journal]
     Binary -->|Certificates and private keys| WORM["/mnt/worm-storage/&lt;installation-timestamp&gt;/pki/"]
     Binary -->|Audit events| CLI[ab-truelog-cli]

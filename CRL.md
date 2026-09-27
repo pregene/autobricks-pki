@@ -54,6 +54,8 @@ Each replacement CRL receives its own issuance time and a new fixed seven-day va
 
 Revocation state and the pending CRL update are committed together before signing. CRL generation failure never reverses revocation. Pending publication is retried every 30 seconds, including after restart. Downloads only read the current published WORM file. Missing, expired, or pending CRLs produce an error without creating a CRL during the request.
 
+Each renewal lineage is published once per revocation or expiry refresh. All linked CA generations reference that publication, and pending CRL tasks for the lineage are completed with its metadata update. CRL retries are independent of DNS and TrueLog delivery.
+
 Immediate publication updates the server's downloadable CRL. It does not push the replacement into validators that have already cached an earlier CRL.
 
 The seven-day interval is an Autobricks PKI policy. Timestamp semantics and publication by `nextUpdate` follow [RFC 5280, Sections 5.1.2.4 and 5.1.2.5](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.4).

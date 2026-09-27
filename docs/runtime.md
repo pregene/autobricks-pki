@@ -52,11 +52,11 @@ abpkid serve
 
 `init` reads TrueLog retention and stores `min(398, retention days - 7)` as the default and maximum Intermediate CA lifetime. The TrueLog configuration must be readable by the initialization account; invalid or unavailable retention prevents CA creation.
 
-`init` requires a password of at least 12 bytes and creates the Root CA, six Intermediate CAs, empty signed CRLs, and the PKI service's TLS certificate. It queues DNS registration for the service hostname and certificate/key delivery to WORM and audit submission through TrueLog. Reinitializing an existing hierarchy is rejected.
+`init` requires a password of at least 12 bytes and creates the Root CA, six Intermediate CAs, empty signed CRLs, and the PKI service's TLS certificate. It writes certificates and encrypted keys to WORM before committing their metadata and queues DNS registration for the service hostname and audit submission through TrueLog. Reinitializing an existing hierarchy is rejected.
 
 If external delivery fails after initialization commits, the CA hierarchy remains in SQLite. `serve` retries pending delivery; reinitialization does not replace the hierarchy. The local `root` command exports only the public Root CA certificate as PEM. Distribute this trust anchor through a trusted channel before connecting with `abpki-cli`.
 
-The service checks CA renewal, its own TLS certificate renewal, CRL refresh, and pending delivery every 30 seconds. New TLS connections use the current service certificate. Other deployed leaf certificates remain the responsibility of their holders. HTTPS retrieval refreshes an expired CRL before returning it.
+The scheduler polls every 30 seconds and runs Intermediate CA and service TLS certificate renewal maintenance once per hour. CRL maintenance retries pending publication and refreshes expiring CRLs independently. New TLS connections use the current service certificate. Other deployed leaf certificates remain the responsibility of their holders. HTTPS CRL retrieval reads the published WORM file without signing; pending, expired, or unavailable publications return an error.
 
 ## Client connection
 
@@ -86,7 +86,7 @@ The configuration belongs to the daemon. A command invocation does not read this
 
 ### Per-operation data through the Unix socket
 
-Each command supplies its complete operation data through the Unix socket. The service does not read command-specific secrets from its environment. The local request uses the existing management message fields: `method`, `path`, `content_type`, `credential`, and `body` as JSON bytes. The daemon validates and forwards the request over its configured TLS connection.
+Each command supplies its complete operation data through the Unix socket. The service does not read command-specific secrets from its environment. The local request uses the existing management message fields: `method`, `path`, `content_type`, `credential`, and `body`. ABP1 frames carry JSON metadata and a separate raw body. The daemon validates and forwards the request over its configured TLS connection.
 
 | Command | Request body | Local request `credential` | Value source |
 | --- | --- | --- | --- |
@@ -188,7 +188,7 @@ There are no user accounts or user management. One administrator password author
 abpki-cli revoke <fingerprint> --pass
 ```
 
-`--pass PASSWORD` accepts the password directly. With `--pass` and no value, the CLI prompts on its own terminal without echo. It sends the supplied password as the Unix socket request credential; the daemon forwards it through TLS. Revocation and the updated signed CRL commit in the same SQLite transaction. OCSP queries read the committed certificate status.
+`--pass PASSWORD` accepts the password directly. With `--pass` and no value, the CLI prompts on its own terminal without echo. It sends the supplied password as the Unix socket request credential; the daemon forwards it through TLS. Revocation and its pending CRL task commit before CRL signing. CRL publication failure does not reverse revocation. OCSP queries read the committed certificate status.
 
 ## Public HTTPS interfaces (5546)
 
@@ -215,8 +215,25 @@ The public listener exposes only the product information, Root CA, CRL, and OCSP
 | POST | `/api/revoke` | Administrator-protected leaf revocation |
 | POST | `/api/renew` | Token-protected leaf renewal |
 
-Management uses one newline-terminated JSON request and response per TLS connection. Requests contain `method` (`GET` or `POST`), `path`, `content_type`, optional `credential`, and `body` as an array of bytes. POST payload bytes contain JSON with content type `application/json`. Administrator passwords and certificate access tokens occupy the encrypted `credential` field. Responses contain `status`, `content_type`, and `body` as an array of bytes. Request frames are limited to 1 MiB and response frames to 16 MiB, including the terminating newline.
+Management uses one request and response per TLS connection. New clients use `ABP1` framing: four magic bytes, a big-endian 32-bit JSON-header length, a big-endian 32-bit body length, the JSON header, and the raw body. The header contains the existing method/path/content-type/credential or status/content-type fields, without a body field. Header size is limited to 16 KiB. Total frames remain limited to 1 MiB for requests and 16 MiB for responses. Private credentials remain inside TLS.
+
+The server and local relay also accept legacy newline JSON frames and return legacy JSON to those callers. New clients require a server supporting binary frames; no credential-bearing operation is automatically replayed for protocol fallback.
+
+Current CLI list commands request `/api/list?after=0` or `/api/list-ca?after=0`. Responses contain `entries`, `next_after`, and `through`. Subsequent pages send both `after` and `through`. The CLI prints each page immediately and prints the header once. Legacy selectors without query parameters return an array only when the complete result fits one page; larger results fail rather than silently truncate.
 
 Both listeners validate requests independently and close connections after one response. Both use the service TLS certificate without requiring client certificates. The combined connection limit is 32, with a 15-second connection deadline. Certificate fingerprints are lowercase hexadecimal SHA-256 digests of the complete DER certificate.
 
 [CLI functions](cli.md) · [Key storage](key-storage.md) · [CRL](../CRL.md) · [OCSP](../OCSP.md)
+
+## Request and delivery execution
+
+The server reuses its in-memory TLS configuration while the configured certificate fingerprint is unchanged. Each new connection still checks certificate revocation and expiry in SQLite. A changed fingerprint loads the replacement certificate, key, and trust chain from WORM and replaces the cached configuration.
+
+The client daemon builds its OS-trust TLS configuration once at startup and shares it among at most 16 concurrent relays. Additional connections are closed when all relay slots are occupied. Each relay retains a separate TCP/TLS connection and request; credentials remain request-specific. Restart the client daemon after changing its configured trust bundle.
+
+During normal server operation, issuance and renewal queue DNS and TrueLog work and return with `integrations_pending` set when delivery remains outstanding. A separate worker performs external I/O without holding the shared service lock. Work is fetched in batches of 64, advancing past failures and pausing 30 seconds between complete passes. Database operations, certificate signing, and WORM publication still use the service lock; they are not fully parallelized. Installation initialization delivers its initial integrations synchronously.
+
+Revocation immediately attempts CRL publication after committing certificate status. Maintenance retries pending CRLs independently of external DNS/TrueLog delivery. Linked CA generations share one publication per revocation or expiry refresh, one CRL number increment, and one WORM artifact for that publication.
+
+
+OCSP caches SHA-1/SHA-256 issuer name/key hashes in memory. A changed Intermediate CA generation refreshes that cache; no issuer cache or PEM body is added to SQLite. Each OCSP request is parsed once and current leaf status is queried by issuer and serial. Leaf revocation results are never cached.

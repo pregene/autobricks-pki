@@ -56,7 +56,7 @@ An Intermediate CA delegates issuance below the root. Separating issuers allows 
 
 Its CA flag and certificate-signing usage identify its issuing role. A leaf-only issuer uses `pathLenConstraint=0`; name and policy constraints can narrow its scope. Its certificate accompanies end-entity certificates during chain construction. [RFC 5280, Sections 4.2.1.9–4.2.1.11](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.2.1.9).
 
-`abpki-cli create-ca` requires an authorized user. `list-ca` lists issuers; `chain` downloads the Intermediate and Root CA certificates together as `trust-chain`.
+`abpki-cli create-ca` returns Not Implemented in version 1.0; additional Intermediate CA creation is reserved for version 1.1. `list-ca` lists issuers; `chain` downloads the Intermediate and Root CA certificates together as `trust-chain`.
 
 ### Server certificate
 

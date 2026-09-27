@@ -42,6 +42,14 @@ fn run() -> Result<()> {
         return Err("--pass is required for this command".into());
     }
 
+    if matches!(command.as_str(), "list" | "list-ca") && args.is_empty() {
+        let socket = env::var("ABPKI_SOCKET").unwrap_or_else(|_| client::daemon::SOCKET.into());
+        return client::listing::print_all(
+            std::path::Path::new(&socket),
+            &command,
+            &mut std::io::stdout().lock(),
+        );
+    }
     let mut method = "GET";
     let mut body = vec![];
     let mut output = None;

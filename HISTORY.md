@@ -1,5 +1,31 @@
 # Development history
 
+## 1.0.111 — 2026-09-28
+
+- Cached public OCSP issuer hashes, refreshed renewed CA generations, and removed duplicate request parsing while retaining live revocation lookup.
+- Added non-unique indexed DNS lookups, including legacy aliases, without blocking same-name renewal.
+- Added 256-row certificate pages and incremental CLI rendering with an initial maximum-index boundary.
+- Added ABP1 raw-body framing with legacy-request reply compatibility.
+- Passed the cumulative panic gate with 61 Rust tests and 10 installer tests; passed 54 post-test checks on installed 1.0.111, including same-CN/DNS renewal and CA cache refresh.
+
+- Extended post-test.sh with installed server/client version banners, concurrent CLI status/info checks, and eighteen labeled isolated regression cases from prebuilt test executables.
+
+## 1.0.108 — 2026-09-28
+
+- Moved running-server DNS and TrueLog delivery outside the shared service lock, with independent CRL retries.
+- Cached server TLS configuration while retaining current certificate checks; reused client trust configuration across up to 16 concurrent relays.
+- Added partial outbox indexes and cursor-based batches of 64 pending external operations.
+- Coalesced CRL publication across linked CA generations and completed their pending tasks with the publication transaction.
+- Added regression cases for TLS cache reuse and replacement, concurrent client relays and capacity recovery, external-delivery lock release and retries, bounded outbox filtering, and coalesced CRL failure recovery. Coverage is mapped to FIXED items 10–14 in tests/PERFORMANCE.md. Passed the panic gate with 55 Rust tests and 10 installer tests; passed all 34 installed CLI checks on 1.0.108.
+
+## 1.0.105 — 2026-09-28
+
+- Replaced runtime-wide certificate loading with fingerprint, issuer/serial, CA selection, and metadata-only queries.
+- Restricted OCSP, CRL, TLS, and public-chain key access to required signing material; CRL revocation entries use stored serial metadata.
+- Added lookup indexes and FIXED.md to track nine query corrections.
+- Added tests/post-test.sh for numbered checks through the installed CLI, covering metadata lists, certificate status and X.509 information, missing certificates, and Root/chain downloads.
+- Passed the panic gate with 44 Rust tests and 10 installer tests; passed 34 installed CLI checks on 1.0.105.
+
 ## 1.0.102 — 2026-09-27
 
 - Added package assembly from existing version-verified binaries without recompilation.
@@ -67,25 +93,9 @@
 
 ## 1.0.060 — 2026-09-27
 
-- Removed redundant package-type and automatic client configuration captions from the installation screen.
-
-- Added a visible editing cursor with positional insertion, navigation, and deletion; moved field length hints onto the input row.
-
-- Added a generated 16-character ADMIN password to the server installation completion screen and documented its server configuration storage. The screen test keeps the password in memory only.
-
-- Colored the installation header product name and copyright blue and the full version green.
-
-- Enforced installer field length and character restrictions during input, with bounded controls and inline limits.
-
-- Replaced the screen preview review step with Install, simulated installation progress, and Finish controls.
-
-- Removed package selection from the installer preview; server and client preview commands open their respective settings directly.
-
-- Updated the installation screen preview to read the full product version from VERSION and display the standard product banner.
-
-- Added a curses installation screen preview for combined server/client and client-only flows with in-memory input validation and review, without installation side effects.
-
-- Removed password-entry and credential-handling prescriptions from the package installation specification.
+- Added package-specific curses installation screens with bounded input, inline limits, and a visible editing cursor.
+- Displayed the full VERSION in green and the product name and copyright in blue.
+- Added simulated installation progress and a generated 16-character ADMIN password on the server completion screen; preview execution keeps all values in memory.
 
 - Added PACKAGE.md describing combined server/client and client-only package composition, installation inputs, trust enrollment, and removal behavior.
 
@@ -310,7 +320,6 @@
 - Updated product references in the project license.
 - Added key storage and build flow diagrams in Mermaid.
 - Added VERSION and a build runner with serialized version allocation and build status propagation.
-- Excluded local agent instructions and the build lock from Git.
 - Added CA hierarchy, server/client certificate lifecycle, and TLS access documentation with diagrams.
 - Documented open certificate issuance and permission-restricted revocation, with an access table and flow diagram.
 - Documented the server binary `abpkid` and the connecting client binary `abpki-cli`.

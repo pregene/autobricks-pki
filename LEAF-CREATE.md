@@ -2,7 +2,7 @@
 
 Autobricks PKI Server 1.0 issues `server`, `client`, and `server-and-client` certificates through an Intermediate CA. Any connected client can request issuance without an account, administrator password, or client certificate. The local `abpki-client` service verifies the server certificate and hostname using the OS trust store populated with the PKI Root CA during client installation.
 
-This document specifies the creation flow with WORM as the source store and numeric CA-to-leaf relationships. Current runtime code still duplicates PEM contents in SQLite; the storage and audit flow below is not fully implemented.
+This document specifies the creation flow with WORM as the source store and numeric CA-to-leaf relationships. Certificate and key PEM contents reside only on WORM. The audit-history schema below is not yet populated by the runtime.
 
 ## Request interface
 
@@ -56,7 +56,7 @@ Purpose and CIDR access URNs describe certificate claims. Open issuance does not
 6. Write the certificate PEM and encrypted PKCS#8 private-key PEM to WORM and synchronize the files. WORM failure prevents issuance success.
 7. Insert certificate metadata and WORM paths into SQLite with `valid=VALID`, `superseded_at=NULL`, `revoked_at=NULL`, and `previous_certificate_idx=NULL`. Retain the issuance profile and token hash; do not store PEM contents or the plaintext token.
 8. Insert `intermediate_leaf(intermediate_idx, leaf_idx)` using the actual issuer and new leaf row IDs. Queue the `CREATE` audit event with result `200` and any server DNS registrations in the same transaction. Commit.
-9. Submit pending audit work through `ab-truelog-cli` and register DNS through Autobricks DNS. Confirmed TrueLog results populate `audit` as specified in [DDL.md](DDL.md#audit-history-schema). Return the certificate, access token, and delivery state.
+9. Return the certificate, access token, and delivery state. A background worker submits queued audit work through `ab-truelog-cli` and registers DNS through Autobricks DNS. Persistent confirmed audit rows are specified in [DDL.md](DDL.md#audit-history-schema) but are not yet written by the runtime.
 
 The transaction serializes issuer-state and uniqueness checks with metadata insertion. WORM files cannot be rolled back with SQLite; an interrupted issuance can leave retained, unreferenced files. Those files do not represent a successfully committed certificate.
 
@@ -98,7 +98,7 @@ sequenceDiagram
 
 The JSON result contains `certificate`, `download_token`, and `integrations_pending`. The certificate result identifies the fingerprint, CN, issuer, serial, validity, and lifecycle state. Any certificate PEM returned in the response is read from WORM; it is not a SQLite column. The result excludes private keys, token hashes, and the stored profile. The CLI saves the returned fingerprint/token association in the calling user's protected local credential record before reporting completion. Normal output omits the token. Listing and status operations cannot recover it. See [per-operation socket data](docs/runtime.md#per-operation-data-through-the-unix-socket).
 
-`integrations_pending=true` means reconciliation encountered a pending external delivery failure, potentially including an earlier queued operation. Certificate issuance has already committed. The server retries pending work during maintenance; the client must not create another certificate merely to retry DNS or audit delivery. WORM certificate and key files must already be stored before issuance success.
+`integrations_pending=true` means external delivery is outstanding, potentially including an earlier queued operation; it does not necessarily indicate a delivery failure. Certificate issuance has already committed. The server retries pending work during maintenance; the client must not create another certificate merely to retry DNS or audit delivery. WORM certificate and key files must already be stored before issuance success.
 
 WORM artifacts use the UTC creation date and certificate fingerprint:
 

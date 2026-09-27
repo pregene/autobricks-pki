@@ -35,17 +35,16 @@ impl Service {
             if duplicate {
                 return Err("leaf CN already exists; use renewal for an existing certificate".into());
             }
-            for certificate in self.db.all()?.iter().filter(|c| c.profile.is_some()) {
-                let previous: LeafProfile = serde_json::from_str(certificate.profile.as_deref().ok_or("missing profile")?)?;
-                if request.profile.kind.is_server() && previous.kind.is_server()
-                    && previous.dns_names.iter().any(|name| request.profile.dns_names.iter().any(|requested| requested.eq_ignore_ascii_case(name)))
-                {
-                    return Err("generated DNS name is already assigned to another certificate; use renewal".into());
+            if request.profile.kind.is_server() {
+                for name in &request.profile.dns_names {
+                    if self.db.dns_name_exists(name)? {
+                        return Err("generated DNS name is already assigned to another certificate; use renewal".into());
+                    }
                 }
             }
             self.create_inner(&issuer, &request.profile)
         })?;
-        issued.integrations_pending = self.reconcile().is_err();
+        issued.integrations_pending = self.reconcile().is_err() || self.db.has_pending()?;
         Ok(issued)
     }
     pub(crate) fn create_inner(
@@ -104,8 +103,9 @@ impl Service {
         Ok(())
     }
     pub fn download(&self, id: &str, token: &str) -> Result<Vec<u8>> {
+        let metadata = self.db.metadata(id)?;
+        self.authorize_download(&metadata, token)?;
         let c = self.db.get(id)?;
-        self.authorize_download(&c, token)?;
         let chain = self.chain(c.issuer.as_deref().ok_or("missing issuer")?)?;
         let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         let mut tar = tar::Builder::new(encoder);
@@ -123,7 +123,7 @@ impl Service {
         Ok(tar.into_inner()?.finish()?)
     }
     pub fn renew(&self, id: &str, token: &str) -> Result<Issued> {
-        let old = self.db.get(id)?;
+        let old = self.db.metadata(id)?;
         self.authorize_download(&old, token)?;
         if old.revoked_at.is_some() || !old.validity.renewable(now()) {
             return Err("certificate is revoked or outside renewal window".into());
@@ -132,19 +132,13 @@ impl Service {
             serde_json::from_str(old.profile.as_deref().ok_or("missing leaf profile")?)?;
         let old_ca = self
             .db
-            .get(old.issuer.as_deref().ok_or("missing issuer")?)?;
-        let issuer = self
-            .db
-            .all()?
-            .into_iter()
-            .filter(|c| c.kind == "intermediate" && c.cn == old_ca.cn)
-            .max_by_key(|c| c.validity.not_after)
-            .ok_or("missing issuer")?;
+            .metadata(old.issuer.as_deref().ok_or("missing issuer")?)?;
+        let issuer = self.db.issuer(&old_ca.cn)?;
         profile.validity = old.validity.renewed(now(), issuer.validity)?;
         let mut issued = self
             .db
             .transaction(|| self.create_inner(&issuer, &profile))?;
-        issued.integrations_pending = self.reconcile().is_err();
+        issued.integrations_pending = self.reconcile().is_err() || self.db.has_pending()?;
         Ok(issued)
     }
 }

@@ -17,6 +17,7 @@
 | `abpki-cli renew ...` | Renew a leaf certificate during the final seven days before expiration. |
 | `abpki-cli create ...` | Create a server or client certificate for its intended use. |
 | `abpki-cli check ...` | Query certificate status: `GOOD`, `REVOKED`, or `UNKNOWN`. |
+| `abpki-cli info <fingerprint>` | Display X.509 certificate information. |
 | `abpki-cli list-ca ...` | List issuing Intermediate CAs. |
 | `abpki-cli list ...` | List issued certificates. |
 | `abpki-cli download {fingerprint} {target}` | Download the certificate, its private key, and its trust chain as `{target}.tar.gz`, identified by the certificate fingerprint. |
@@ -41,7 +42,7 @@ All downloaded certificates, private keys, and trust chains use PEM encoding, in
 
 `GET https://<dns record name>:5546/root` returns the Root CA certificate in PEM with `Content-Type: application/x-pem-file`. No administrator password or client certificate is required.
 
-`abpki-cli root` uses this endpoint on `ABPKI_HTTPS_PORT` (default 5546) and saves the PEM certificate as `root.crt`.
+`abpki-cli root` uses this endpoint on the client configuration's `https_port` (default 5546) and saves the PEM certificate as `root.crt`.
 
 ## CA chain download
 
@@ -72,6 +73,6 @@ sequenceDiagram
     CLI->>File: Save as target.tar.gz
 ```
 
-Private-key downloads and leaf renewal require the certificate-specific access token returned by issuance. The CLI saves issuance tokens in caller-owned credential records and includes the selected token in the Unix socket request for these commands. The service has no application user accounts; `revoke` receives the single administrator password through the Unix socket credential field and verify it on the server. Bare `--pass` prompts in the calling CLI; per-command credentials are not service environment variables.
+Private-key downloads and leaf renewal require the certificate-specific access token returned by issuance. The CLI saves issuance tokens in caller-owned credential records and includes the selected token in the Unix socket request for these commands. The service has no application user accounts; `revoke` receives the single administrator password through the Unix socket credential field and verifies it on the server. Bare `--pass` prompts in the calling CLI; per-command credentials are not service environment variables.
 
 [Common Names, DNS naming, and uniqueness](../COMMON-NAME.md)

@@ -48,3 +48,25 @@ CREATE TABLE IF NOT EXISTS outbox (
     payload TEXT NOT NULL,
     done INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE INDEX IF NOT EXISTS certificates_kind_cn_expiry
+    ON certificates (kind, cn, not_after DESC, idx DESC);
+CREATE INDEX IF NOT EXISTS certificates_kind_expiry
+    ON certificates (kind, not_after);
+CREATE INDEX IF NOT EXISTS certificates_predecessor
+    ON certificates (previous_certificate_idx);
+CREATE INDEX IF NOT EXISTS certificates_lower_cn
+    ON certificates (lower(cn));
+
+CREATE INDEX IF NOT EXISTS outbox_pending_id
+    ON outbox (id) WHERE done=0;
+CREATE INDEX IF NOT EXISTS outbox_pending_kind_payload
+    ON outbox (kind, payload) WHERE done=0;
+
+CREATE INDEX IF NOT EXISTS certificates_dns_name
+    ON certificates (json_extract(profile,'$.dns_names[0]') COLLATE NOCASE)
+    WHERE kind IN ('server','server-and-client');
+CREATE INDEX IF NOT EXISTS certificates_dns_aliases
+    ON certificates (idx)
+    WHERE kind IN ('server','server-and-client') AND json_array_length(profile,'$.dns_names')>1;
+CREATE INDEX IF NOT EXISTS certificates_kind_idx ON certificates (kind, idx);

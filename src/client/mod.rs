@@ -5,11 +5,23 @@ use crate::{Result, transport::tls};
 use std::{
     io::{Read, Write},
     net::{TcpStream, ToSocketAddrs},
+    sync::Arc,
     time::Duration,
 };
 pub fn request(
     origin: &str,
     trust: &[u8],
+    method: &str,
+    path: &str,
+    body: &[u8],
+    token: Option<&str>,
+) -> Result<Vec<u8>> {
+    request_with_config(origin, tls::client(trust)?, method, path, body, token)
+}
+
+pub(crate) fn request_with_config(
+    origin: &str,
+    config: Arc<rustls::ClientConfig>,
     method: &str,
     path: &str,
     body: &[u8],
@@ -23,7 +35,7 @@ pub fn request(
     }
     let url = url::Url::parse(origin)?;
     let port = url.port_or_known_default().ok_or("missing port")?;
-    let mut stream = connect(&url, trust, port)?;
+    let mut stream = connect(&url, config, port)?;
     let authority = &url[url::Position::BeforeHost..url::Position::AfterPort];
     write!(
         stream,
@@ -84,7 +96,7 @@ pub fn segment(value: &str) -> Result<String> {
 
 fn connect(
     url: &url::Url,
-    trust: &[u8],
+    config: Arc<rustls::ClientConfig>,
     port: u16,
 ) -> Result<rustls::StreamOwned<rustls::ClientConnection, TcpStream>> {
     let host = match url.host().ok_or("missing hostname")? {
@@ -103,16 +115,24 @@ fn connect(
     socket.set_read_timeout(Some(Duration::from_secs(30)))?;
     socket.set_write_timeout(Some(Duration::from_secs(10)))?;
     let name = rustls::pki_types::ServerName::try_from(host.to_owned())?;
-    let stream = rustls::StreamOwned::new(
-        rustls::ClientConnection::new(tls::client(trust)?, name)?,
-        socket,
-    );
+    let stream = rustls::StreamOwned::new(rustls::ClientConnection::new(config, name)?, socket);
     Ok(stream)
 }
 
 pub fn management_request(
     origin: &str,
     trust: &[u8],
+    method: &str,
+    path: &str,
+    body: &[u8],
+    token: Option<&str>,
+) -> Result<Vec<u8>> {
+    management_request_with_config(origin, tls::client(trust)?, method, path, body, token)
+}
+
+pub(crate) fn management_request_with_config(
+    origin: &str,
+    config: Arc<rustls::ClientConfig>,
     method: &str,
     path: &str,
     body: &[u8],
@@ -130,7 +150,7 @@ pub fn management_request(
     {
         return Err("management address must be a TLS origin".into());
     }
-    let mut stream = connect(&url, trust, url.port().unwrap_or(5545))?;
+    let mut stream = connect(&url, config, url.port().unwrap_or(5545))?;
     let message = Message {
         method: method.into(),
         path: path.into(),

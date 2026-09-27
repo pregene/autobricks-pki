@@ -40,9 +40,9 @@ pub fn generate(
             .is_some_and(|id| generations.contains(&id))
     }) {
         if let Some(revoked) = entry.revoked_at {
-            let leaf = X509::from_pem(entry.pem.as_bytes())?;
+            let serial = openssl::bn::BigNum::from_hex_str(&entry.serial)?.to_asn1_integer()?;
             let mut r = X509RevokedBuilder::new()?;
-            r.set_serial_number(leaf.serial_number())?;
+            r.set_serial_number(&serial)?;
             let date = Asn1Time::from_unix(revoked)?;
             r.set_revocation_date(&date)?;
             b.add_revoked(r.build())?;

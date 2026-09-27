@@ -57,6 +57,7 @@ impl Fixture {
         });
         std::fs::write(temp.path().join("truelog.env"), "AB_WORM_RETAIN_DAYS=365\n").unwrap();
         let service = Service {
+            background_delivery: false,
             db: Database::open(&temp.path().join("pki.sqlite"), &worm).unwrap(),
             worm: Worm::new(&worm).unwrap(),
             dns: Dns { socket },
@@ -1305,6 +1306,7 @@ fn ca_lineage_keeps_crl_numbers_and_revocations_across_generations() {
         1
     );
     let second = issue("after", new);
+    let before_revocation = number(new);
     f.service
         .revoke(&second.certificate.fingerprint, ADMIN)
         .unwrap();
@@ -1316,7 +1318,13 @@ fn ca_lineage_keeps_crl_numbers_and_revocations_across_generations() {
             .len(),
         2
     );
+    assert_eq!(number(new), before_revocation + 1);
     assert_eq!(f.service.crl(new).unwrap(), f.service.crl(&old.cn).unwrap());
+    let before_refresh = number(new);
+    connection.execute("UPDATE crls SET next_update=0 WHERE issuer IN (SELECT idx FROM certificates WHERE fingerprint IN (?1,?2))", rusqlite::params![old.fingerprint,new]).unwrap();
+    f.service.refresh_expired_crls().unwrap();
+    assert_eq!(number(new), before_refresh + 1);
+    assert_eq!(number(new), number(&old.fingerprint));
     let unrelated = f.seed_intermediate("continuous", 6);
     assert_eq!(
         f.service.db.ca_lineage(&unrelated.fingerprint).unwrap(),
@@ -1394,4 +1402,353 @@ fn certificate_info_reads_only_public_artifact_and_handles_missing_fingerprint()
             .is_none()
     );
     assert!(f.service.certificate_info("../invalid").is_err());
+}
+
+#[test]
+fn cached_tls_keeps_metadata_checks_without_reopening_keys() {
+    let f = Fixture::new();
+    let cache = autobricks_pki::server::tls_cache::TlsCache::default();
+    let first = cache.config(&f.service).unwrap();
+    let connection = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    connection
+        .execute("DELETE FROM settings WHERE name='private_key_password'", [])
+        .unwrap();
+    let second = cache.config(&f.service).unwrap();
+    assert!(Arc::ptr_eq(&first, &second));
+    let id = String::from_utf8(f.service.db.setting("tls_certificate").unwrap().unwrap()).unwrap();
+    connection
+        .execute(
+            "UPDATE certificates SET revoked_at=1 WHERE fingerprint=?",
+            [&id],
+        )
+        .unwrap();
+    assert!(cache.config(&f.service).is_err());
+    connection
+        .execute(
+            "UPDATE certificates SET revoked_at=NULL,not_after=0 WHERE fingerprint=?",
+            [&id],
+        )
+        .unwrap();
+    assert!(cache.config(&f.service).is_err());
+}
+
+#[test]
+fn pending_delivery_batches_advance_past_uncompleted_rows() {
+    let f = Fixture::new();
+    for _ in 0..130 {
+        f.service.db.enqueue("audit", "{}").unwrap();
+    }
+    let first = f.service.db.pending().unwrap();
+    assert_eq!(first.len(), 64);
+    let second = f.service.db.pending_after(first.last().unwrap().0).unwrap();
+    assert_eq!(second.len(), 64);
+    let third = f
+        .service
+        .db
+        .pending_after(second.last().unwrap().0)
+        .unwrap();
+    assert_eq!(third.len(), 2);
+    assert!(
+        f.service
+            .db
+            .pending_after(third.last().unwrap().0)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(f.service.db.has_pending().unwrap());
+    assert_eq!(f.service.db.pending().unwrap(), first);
+}
+
+#[test]
+fn background_delivery_defers_external_tools_but_publishes_revocation() {
+    let mut f = Fixture::new();
+    f.service.background_delivery = true;
+    f.service.truelog.executable = f._temp.path().join("unavailable-truelog");
+    let issued = f.issue(47);
+    assert!(issued.integrations_pending);
+    assert!(f.service.db.has_pending().unwrap());
+    f.service
+        .revoke(&issued.certificate.fingerprint, ADMIN)
+        .unwrap();
+    let crl = X509Crl::from_pem(
+        &f.service
+            .crl(issued.certificate.issuer.as_deref().unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(crl.get_revoked().unwrap().len(), 1);
+    assert!(
+        !f.service
+            .db
+            .pending()
+            .unwrap()
+            .iter()
+            .any(|(_, kind, _)| kind == "crl")
+    );
+    assert!(f.service.db.has_pending().unwrap());
+}
+
+#[path = "performance/client.rs"]
+mod client_performance;
+
+#[test]
+fn tls_cache_reloads_changed_fingerprint_and_rejects_broken_replacement() {
+    let f = Fixture::new();
+    let cache = autobricks_pki::server::tls_cache::TlsCache::default();
+    let first = cache.config(&f.service).unwrap();
+    let replacement = f.issue(47);
+    f.service
+        .db
+        .set_setting(
+            "tls_certificate",
+            replacement.certificate.fingerprint.as_bytes(),
+        )
+        .unwrap();
+    let second = cache.config(&f.service).unwrap();
+    assert!(!Arc::ptr_eq(&first, &second));
+    assert!(Arc::ptr_eq(&second, &cache.config(&f.service).unwrap()));
+    let broken = f.issue(47);
+    let conn = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    conn.execute(
+        "UPDATE certificates SET private_key_path='missing.pem' WHERE fingerprint=?",
+        [&broken.certificate.fingerprint],
+    )
+    .unwrap();
+    f.service
+        .db
+        .set_setting("tls_certificate", broken.certificate.fingerprint.as_bytes())
+        .unwrap();
+    assert!(
+        cache.config(&f.service).is_err(),
+        "old TLS config hid a broken replacement"
+    );
+}
+
+#[test]
+fn outbox_filters_completed_rows_and_separates_crl_work() {
+    let f = Fixture::new();
+    for _ in 0..70 {
+        f.service.db.enqueue("audit", "{}").unwrap();
+    }
+    let initial = f.service.db.pending().unwrap();
+    for (id, _, _) in &initial {
+        f.service.db.complete(*id).unwrap();
+    }
+    f.service.db.enqueue("crl", "issuer-a").unwrap();
+    f.service.db.enqueue("crl", "issuer-a").unwrap();
+    let external = f.service.db.pending_external_after(0).unwrap();
+    assert_eq!(external.len(), 6);
+    assert!(
+        external
+            .iter()
+            .all(|(id, kind, _)| *id > initial.last().unwrap().0 && kind == "audit")
+    );
+    assert_eq!(f.service.db.pending_crls().unwrap(), vec!["issuer-a"]);
+    let conn = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    for index in ["outbox_pending_id", "outbox_pending_kind_payload"] {
+        let sql: String = conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type='index' AND name=?",
+                [index],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(sql.contains("WHERE done=0"));
+    }
+}
+
+#[test]
+fn failed_crl_publications_coalesce_and_retry_independently_of_external_delivery() {
+    let mut f = Fixture::new();
+    f.service.background_delivery = true;
+    f.service.truelog.executable = f._temp.path().join("unavailable-truelog");
+    let first = f.issue(47);
+    let second = f.issue(47);
+    let issuer = first.certificate.issuer.as_deref().unwrap();
+    let conn = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    let before: i64 = conn.query_row("SELECT number FROM crls WHERE issuer=(SELECT idx FROM certificates WHERE fingerprint=?)", [issuer], |r| r.get(0)).unwrap();
+    conn.execute_batch("CREATE TRIGGER fail_crl BEFORE UPDATE ON crls BEGIN SELECT RAISE(ABORT,'publication failure'); END;").unwrap();
+    for certificate in [&first.certificate, &second.certificate] {
+        f.service.revoke(&certificate.fingerprint, ADMIN).unwrap();
+        assert!(
+            f.service
+                .db
+                .metadata(&certificate.fingerprint)
+                .unwrap()
+                .revoked_at
+                .is_some()
+        );
+    }
+    let jobs: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM outbox WHERE kind='crl' AND done=0",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(jobs, 1, "same-lineage failures duplicated pending CRL work");
+    assert!(f.service.crl(issuer).is_err());
+    conn.execute_batch("DROP TRIGGER fail_crl").unwrap();
+    f.service.refresh_status_and_deliver().unwrap();
+    let after: i64 = conn.query_row("SELECT number FROM crls WHERE issuer=(SELECT idx FROM certificates WHERE fingerprint=?)", [issuer], |r| r.get(0)).unwrap();
+    assert_eq!(after, before + 1);
+    let crl = X509Crl::from_pem(&f.service.crl(issuer).unwrap()).unwrap();
+    assert_eq!(crl.get_revoked().unwrap().len(), 2);
+    assert!(f.service.db.pending_crls().unwrap().is_empty());
+    assert!(!f.service.db.pending_external_after(0).unwrap().is_empty());
+}
+
+#[test]
+fn dns_index_allows_renewal_but_blocks_new_issuance_and_finds_aliases() {
+    let f = Fixture::new();
+    let issued = f.issue(6);
+    let profile: LeafProfile =
+        serde_json::from_str(issued.certificate.profile.as_deref().unwrap()).unwrap();
+    let host = &profile.dns_names[0];
+    assert!(f.service.db.dns_name_exists(&host.to_uppercase()).unwrap());
+    let renewed = f
+        .service
+        .renew(&issued.certificate.fingerprint, &issued.download_token)
+        .unwrap();
+    let replacement: LeafProfile =
+        serde_json::from_str(renewed.certificate.profile.as_deref().unwrap()).unwrap();
+    assert_eq!(profile.common_name, replacement.common_name);
+    assert_eq!(profile.dns_names, replacement.dns_names);
+    assert!(
+        f.service
+            .create(Create {
+                issuer: issued.certificate.issuer.clone().unwrap(),
+                profile
+            })
+            .is_err()
+    );
+    let conn = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    let sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE name='certificates_dns_name'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(!sql.contains("UNIQUE"));
+    conn.execute("UPDATE certificates SET profile=json_set(profile,'$.dns_names[1]','Legacy.Example') WHERE fingerprint=?", [&issued.certificate.fingerprint]).unwrap();
+    assert!(f.service.db.dns_name_exists("legacy.example").unwrap());
+    assert!(!f.service.db.dns_name_exists("absent.example").unwrap());
+}
+
+#[test]
+fn ocsp_cache_avoids_unrelated_pem_reads_and_observes_live_revocation() {
+    let f = Fixture::new();
+    let issued = f.issue(47);
+    let leaf = X509::from_pem(issued.certificate.pem.as_bytes()).unwrap();
+    let issuer = f
+        .service
+        .db
+        .public_certificate(issued.certificate.issuer.as_deref().unwrap())
+        .unwrap();
+    let ca = X509::from_pem(issuer.pem.as_bytes()).unwrap();
+    let check = |digest, expected| {
+        let mut req = OcspRequest::new().unwrap();
+        req.add_id(OcspCertId::from_cert(digest, &leaf, &ca).unwrap())
+            .unwrap();
+        let bytes = ocsp::respond_database(&req.to_der().unwrap(), &f.service.db, now()).unwrap();
+        let response = OcspResponse::from_der(&bytes).unwrap().basic().unwrap();
+        let id = OcspCertId::from_cert(digest, &leaf, &ca).unwrap();
+        assert_eq!(response.find_status(&id).unwrap().status, expected);
+    };
+    check(MessageDigest::sha1(), OcspCertStatus::GOOD);
+    let conn = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    conn.execute(
+        "UPDATE certificates SET certificate_path='missing.pem' WHERE cn='vpn.autobricks.internal'",
+        [],
+    )
+    .unwrap();
+    check(MessageDigest::sha256(), OcspCertStatus::GOOD);
+    f.service
+        .revoke(&issued.certificate.fingerprint, ADMIN)
+        .unwrap();
+    check(MessageDigest::sha1(), OcspCertStatus::REVOKED);
+    check(MessageDigest::sha256(), OcspCertStatus::REVOKED);
+}
+
+#[test]
+fn ocsp_cache_refreshes_after_intermediate_renewal() {
+    let f = Fixture::new();
+    let old = f.seed_intermediate("cache-ca", 6);
+    let issued = f
+        .service
+        .create(Create {
+            issuer: old.fingerprint.clone(),
+            profile: LeafProfile {
+                kind: LeafKind::Client,
+                common_name: "cache-leaf".into(),
+                dns_names: vec![],
+                ip_addresses: vec![],
+                uri_sans: vec![],
+                validity: Validity::new(now(), 5, None).unwrap(),
+            },
+        })
+        .unwrap();
+    let leaf = X509::from_pem(issued.certificate.pem.as_bytes()).unwrap();
+    let ca = X509::from_pem(old.pem.as_bytes()).unwrap();
+    let body = request(&leaf, &ca);
+    ocsp::respond_database(&body, &f.service.db, now()).unwrap();
+    f.service.maintain().unwrap();
+    let latest = f.service.db.issuer(&old.cn).unwrap();
+    assert_ne!(old.fingerprint, latest.fingerprint);
+    let response = ocsp::respond_database(&body, &f.service.db, now()).unwrap();
+    let cert_der = X509::from_pem(latest.pem.as_bytes())
+        .unwrap()
+        .to_der()
+        .unwrap();
+    assert!(
+        response
+            .windows(cert_der.len())
+            .any(|part| part == cert_der)
+    );
+    let id = OcspCertId::from_cert(MessageDigest::sha1(), &leaf, &ca).unwrap();
+    assert_eq!(
+        OcspResponse::from_der(&response)
+            .unwrap()
+            .basic()
+            .unwrap()
+            .find_status(&id)
+            .unwrap()
+            .status,
+        OcspCertStatus::GOOD
+    );
+}
+
+#[test]
+fn paginated_lists_bound_memory_preserve_order_and_exclude_new_rows() {
+    let f = Fixture::new();
+    let conn = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    conn.execute_batch("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<600) INSERT INTO certificates(fingerprint,cn,kind,serial,not_before,not_after,certificate_path,private_key_path) SELECT printf('%064x',i),'page-'||i,'client',printf('%x',i),0,9999999999,'absent.pem','absent.key.pem' FROM n;").unwrap();
+    assert!(
+        f.service.db.list_certificates(false).is_err(),
+        "legacy list silently truncated"
+    );
+    let mut calls = 0;
+    let mut output = Vec::new();
+    autobricks_pki::client::listing::stream_pages(|after,through| {
+        calls+=1;
+        let page=f.service.db.certificate_page(false,after,through)?;
+        assert!(page.entries.len()<=256);
+        if calls==1 {
+            conn.execute("INSERT INTO certificates(fingerprint,cn,kind,serial,not_before,not_after,certificate_path,private_key_path) VALUES('late','late','client','FFF',0,9999999999,'absent.pem','absent.key.pem')",[]).unwrap();
+        }
+        Ok(page)
+    },&mut output).unwrap();
+    assert_eq!(calls, 3);
+    let text = String::from_utf8(output).unwrap();
+    assert_eq!(text.lines().count(), 602); // Header, existing PKI leaf, and 600 fixture rows.
+    assert_eq!(text.matches("Fingerprint").count(), 1);
+    assert!(!text.contains("late"));
+    let ids: Vec<i64> = text
+        .lines()
+        .skip(1)
+        .map(|line| line.split_whitespace().next().unwrap().parse().unwrap())
+        .collect();
+    assert!(ids.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(f.service.db.certificate_page(false, -1, None).is_err());
 }

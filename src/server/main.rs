@@ -58,6 +58,7 @@ fn run() -> Result<()> {
         .map_err(|_| "invalid HTTPS origin")?;
     let distribution = Distribution::new(origin.as_str())?;
     let service = Service {
+        background_delivery: args == ["serve"],
         db: database,
         distribution,
         truelog: autobricks_pki::integration::truelog::TrueLog {
@@ -69,7 +70,7 @@ fn run() -> Result<()> {
         },
     };
     if args == ["root"] {
-        print!("{}", service.root()?.pem);
+        print!("{}", service.public_root()?.pem);
         return Ok(());
     }
     if args[0] == "init" {
@@ -96,6 +97,14 @@ fn run() -> Result<()> {
     let management_listener = TcpListener::bind(c.listeners.tls_address())?;
     let https_listener = TcpListener::bind(c.listeners.https_address())?;
     let service = Arc::new(Mutex::new(service));
+    let delivery = service.clone();
+    std::thread::Builder::new()
+        .name("abpkid-delivery".into())
+        .spawn(move || {
+            if let Err(error) = autobricks_pki::server::delivery::run(delivery) {
+                eprintln!("integration delivery worker stopped: {error}");
+            }
+        })?;
     let maintenance = service.clone();
     std::thread::Builder::new()
         .name("abpkid-maintenance".into())

@@ -23,7 +23,7 @@ impl Service {
     ) -> Result<()> {
         let base_domain = crate::authority::domain::validate(base_domain)?;
         let policy = super::validity::Policy::new(retention_days)?;
-        if !self.db.all()?.is_empty() {
+        if self.db.has_certificates()? {
             return Err("database already initialized".into());
         }
         self.db.transaction(|| {
@@ -84,30 +84,27 @@ impl Service {
         )
     }
     pub fn root(&self) -> Result<Certificate> {
-        self.db
-            .all()?
-            .into_iter()
-            .find(|c| c.kind == "root")
-            .ok_or_else(|| "root CA is not initialized".into())
+        self.db.get(&self.db.root_id()?)
+    }
+    pub fn public_root(&self) -> Result<Certificate> {
+        self.db.public_certificate(&self.db.root_id()?)
     }
     pub fn chain(&self, issuer: &str) -> Result<Vec<u8>> {
-        let ca = self.db.issuer(issuer)?;
-        let root = self.db.get(ca.issuer.as_deref().ok_or("missing root")?)?;
+        let ca = self.db.public_certificate(&self.db.issuer_id(issuer)?)?;
+        let root = self
+            .db
+            .public_certificate(ca.issuer.as_deref().ok_or("missing root")?)?;
         Ok(format!("{}{}", ca.pem, root.pem).into_bytes())
     }
     pub fn maintain(&self) -> Result<()> {
-        for ca in self
-            .db
-            .all()?
-            .into_iter()
-            .filter(|c| c.kind == "intermediate")
-        {
+        for candidate in self.db.due_intermediates(now())? {
+            let ca = self.db.get(&candidate.fingerprint)?;
             if ca.revoked_at.is_none()
                 && ca.validity.renewable(now())
                 && !self.db.ca_has_successor(&ca.fingerprint)?
             {
                 self.db.transaction(|| {
-                    let root = self.root()?;
+                    let root = self.db.get(&self.db.root_id()?)?;
                     let rc = X509::from_pem(root.pem.as_bytes())?;
                     let rk = PKey::private_key_from_pem(root.key_pem.as_bytes())?;
                     let validity = ca.validity.renewed(now(), root.validity)?;
@@ -136,13 +133,13 @@ impl Service {
             }
         }
         if let Some(id) = self.db.setting("tls_certificate")? {
-            let current = self.db.get(&String::from_utf8(id)?)?;
+            let current = self.db.metadata(&String::from_utf8(id)?)?;
             if current.validity.renewable(now()) && current.revoked_at.is_none() {
                 let mut profile: LeafProfile =
                     serde_json::from_str(current.profile.as_deref().ok_or("missing TLS profile")?)?;
                 let old = self
                     .db
-                    .get(current.issuer.as_deref().ok_or("missing TLS issuer")?)?;
+                    .metadata(current.issuer.as_deref().ok_or("missing TLS issuer")?)?;
                 let issuer = self.db.issuer(&old.cn)?;
                 profile.validity = current.validity.renewed(now(), issuer.validity)?;
                 self.db.transaction(|| {

@@ -29,6 +29,7 @@ pub struct Issued {
     pub integrations_pending: bool,
 }
 pub struct Service {
+    pub background_delivery: bool,
     pub db: Database,
     pub distribution: Distribution,
     pub worm: Worm,

@@ -77,7 +77,7 @@ fn route(s: &Service, r: &Request) -> Result<Response> {
             });
         }
         return Ok(file(
-            revocation::ocsp::respond(&r.body, &s.db.all()?, now())?,
+            revocation::ocsp::respond_database(&r.body, &s.db, now())?,
             revocation::ocsp::RESPONSE_TYPE,
         ));
     }
@@ -90,7 +90,28 @@ fn route(s: &Service, r: &Request) -> Result<Response> {
             return Ok(file(s.crl(&id)?, "application/x-pem-file"));
         }
         if r.path == "/root" || r.path == "/api/root" {
-            return Ok(file(s.root()?.pem.into_bytes(), "application/x-pem-file"));
+            return Ok(file(
+                s.public_root()?.pem.into_bytes(),
+                "application/x-pem-file",
+            ));
+        }
+        if let Some((path, query)) = r.path.split_once('?')
+            && matches!(path, "/api/list" | "/api/list-ca")
+        {
+            let mut after = None;
+            let mut through = None;
+            for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
+                match key.as_ref() {
+                    "after" if after.is_none() => after = Some(value.parse::<i64>()?),
+                    "through" if through.is_none() => through = Some(value.parse::<i64>()?),
+                    _ => return Err("invalid list query".into()),
+                }
+            }
+            return json_response(s.db.certificate_page(
+                path == "/api/list-ca",
+                after.ok_or("missing list cursor")?,
+                through,
+            )?);
         }
         if r.path == "/api/list-ca" {
             return json_response(s.db.list_certificates(true)?);
@@ -115,8 +136,8 @@ fn route(s: &Service, r: &Request) -> Result<Response> {
             });
         }
         if let Some(id) = r.path.strip_prefix("/api/check/") {
-            let status = match s.db.all()?.into_iter().find(|c| c.fingerprint == id) {
-                Some(c) if c.revoked_at.is_some() => Status::Revoked,
+            let status = match s.db.revocation_status(id)? {
+                Some(Some(_)) => Status::Revoked,
                 Some(_) => Status::Good,
                 None => Status::Unknown,
             };

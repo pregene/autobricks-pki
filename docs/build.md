@@ -48,7 +48,7 @@ The gate checks formatting, runs Clippy against production library/binary code w
 
 Clippy rejects `unwrap`, `expect`, explicit `panic`, `todo`, `unimplemented`, and `unreachable` usage. Regression tests exercise truncated and mutated HTTP/management/OCSP inputs, deterministic byte corpora, frame-size overflow, text handling, and validity arithmetic boundaries. This checks the covered paths; it is not a proof that every dependency or every possible input is panic-free.
 
-The gate is a local script and does not register a GitHub Actions workflow. Integration tests use temporary storage and a mock TrueLog CLI; they do not install packages or write to the production WORM mount.
+Integration tests use temporary storage and a mock TrueLog CLI; they do not install packages or write to the production WORM mount.
 
 The package builder emits both `autobricks-pki` (server plus client) and `autobricks-pki-cli` (client only). Package file names follow the TrueLog product convention `NAME-VERSION-OS-OS_VERSION-ARCH.deb`. The server package owns the complete local client service; it does not depend on installing the client-only package. Both packages share the curses screen code and carry the build VERSION.
 
