@@ -1,6 +1,6 @@
 # Autobricks PKI Server 1.0
 
-**Development status: TEATABLE.**
+**Development status: TESTABLE.**
 
 Root CA and Intermediate CA management, with purpose-specific server and client certificate issuance, renewal, and revocation for the Autobricks product family.
 
