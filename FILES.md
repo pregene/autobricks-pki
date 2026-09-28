@@ -145,9 +145,9 @@ SQLite backup copies may be placed on WORM as separate artifacts. A database bac
 
 ```mermaid
 flowchart TD
-    Unit[systemd service] --> Binary[/usr/bin/abpkid]
-    Config[/etc/autobricks-pki/abpkid.env] -->|Environment| Binary
-    Binary -->|Metadata and secrets| DB[/var/lib/autobricks-pki/abpki.sqlite]
+    Unit[systemd service] --> Binary["/usr/bin/abpkid"]
+    Config["/etc/autobricks-pki/abpkid.env"] -->|Environment| Binary
+    Binary -->|Metadata and secrets| DB["/var/lib/autobricks-pki/abpki.sqlite"]
     DB --> Journal[SQLite rollback journal]
     Binary -->|Certificates and private keys| WORM["/mnt/worm-storage/&lt;installation-timestamp&gt;/pki/"]
     Binary -->|Audit events| CLI[ab-truelog-cli]

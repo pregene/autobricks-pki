@@ -2,6 +2,8 @@
 
 ## 1.0.127 — 2026-09-28
 
+- Quoted absolute-path labels in the service file layout diagram. All 23 documentation Mermaid blocks passed parser validation.
+
 - Escaped message semicolons in the leaf creation and revocation Mermaid sequence diagrams; parser verification reproduced the original errors and accepted the corrected diagrams.
 
 - Built and verified eight release packages for Ubuntu 22.04/24.04 on amd64/arm64, with server-plus-client and client-only variants and SHA-256 checksums. Native version/help and architecture/dependency checks passed; ARM64 runtime and package installation were not tested.
