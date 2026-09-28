@@ -69,6 +69,7 @@ impl Service {
         let kind = match profile.kind {
             LeafKind::Server => "server",
             LeafKind::Client => "client",
+            LeafKind::Leaf => "leaf",
             LeafKind::ServerAndClient => "server-and-client",
         };
         let mut c = record(

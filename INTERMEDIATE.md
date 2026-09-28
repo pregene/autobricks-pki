@@ -56,6 +56,72 @@ flowchart TD
     TrueLog --> TrueLogClient[TrueLog client certificates]
 ```
 
+## CA profile extension example
+
+This CA-profile fragment describes name and policy extensions. Additional Intermediate CA creation through `create-ca` remains unavailable in version 1.0, and the current internal CA generator does not accept this configurable profile. The CA creation path supplies its subject, key, issuer, basicConstraints and Key Usage.
+
+```json
+{
+  "name_constraints": {
+    "permitted_subtrees": [
+      {
+        "dns_names": [
+          "autobricks.internal"
+        ]
+      },
+      {
+        "ip_addresses": [
+          "192.0.2.0/24"
+        ]
+      },
+      {
+        "ip_addresses": [
+          "2001:db8::/32"
+        ]
+      }
+    ],
+    "excluded_subtrees": [
+      {
+        "dns_names": [
+          "restricted.autobricks.internal"
+        ]
+      }
+    ]
+  },
+  "certificate_policies": [
+    {
+      "policy_oid": "1.3.6.1.4.1.32473.2.1"
+    }
+  ],
+  "policy_mappings": [
+    {
+      "issuer_domain_policy": "1.3.6.1.4.1.32473.2.1",
+      "subject_domain_policy": "1.3.6.1.4.1.32473.2.2"
+    }
+  ],
+  "policy_constraints": {
+    "require_explicit_policy": 0,
+    "inhibit_policy_mapping": 1
+  },
+  "inhibit_any_policy": 0,
+  "critical": {
+    "name_constraints": true,
+    "certificate_policies": false,
+    "policy_mappings": true,
+    "policy_constraints": true,
+    "inhibit_any_policy": true
+  }
+}
+```
+
+`permitted_subtrees` and `excluded_subtrees` are optional arrays of 1–16 subtree objects; at least one must be present. Each subtree contains one GeneralName value. Minimum is implicitly zero and maximum is absent; no caller distance fields exist. Name lengths and ASN.1 representation limits follow the [certificate field descriptions](LEAF-CREATE.md#certificate-field-support).
+
+DNS constraints describe a DNS subtree, optionally prefixed with a dot. IP constraints encode an address and mask (8 bytes for IPv4, 32 for IPv6). URI constraints describe a DNS host/domain rather than a complete URI; their interpretation differs from hostless Autobricks URNs. Email constraints describe a mailbox or DNS domain, optionally with a leading dot. Directory constraints use the DN object. The example marks nameConstraints critical. Matching these constraints against certificate identities belongs to the consuming system.
+
+`policy_mappings` contains 1–16 issuer-domain/subject-domain OID pairs. Each OID is limited to 100 ASCII bytes and 20 components, with the ASN.1 component bounds described in the field table. `policy_constraints` contains one or both integer keys shown. `inhibit_any_policy` is an integer. The input range for all three counters is 0–2,147,483,647. These values count certificates, not days or string bytes. The example marks policyMappings, policyConstraints and inhibitAnyPolicy critical.
+
+The profile author selects policy identifiers, mappings and counters. PKI encodes supplied values within input length and representation limits; policy relationships, subtree matching and certification-path policy evaluation belong to the consuming system. These extension fields are also accepted by the leaf profile and do not change its internally generated CA=false value.
+
 ## Validity and renewal
 
 Intermediate CA default and maximum validity are calculated during installation as `min(398, TrueLog retention days - 7)`. A shorter duration can be requested at creation. `abpkid` renews these CAs internally during the final 48 days before expiration. Server and client certificates default to 47 days and cannot outlive their issuing Intermediate CA.

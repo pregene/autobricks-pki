@@ -82,3 +82,9 @@ CREATE INDEX IF NOT EXISTS certificates_superseded_deadline ON certificates (sup
 
 CREATE INDEX IF NOT EXISTS certificates_leaf_renewal_due ON certificates (not_after, idx)
     WHERE kind IN ('server','client','server-and-client') AND valid='VALID' AND revoked_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS certificates_extended_leaf_state_idx ON certificates (valid, idx)
+    WHERE kind IN ('server','client','server-and-client','leaf');
+
+CREATE INDEX IF NOT EXISTS certificates_extended_leaf_renewal_due ON certificates (not_after, idx)
+    WHERE kind IN ('server','client','server-and-client','leaf') AND valid='VALID' AND revoked_at IS NULL;

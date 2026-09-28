@@ -17,7 +17,7 @@ impl Service {
             let timestamp = now();
             let days = match old.kind.as_str() {
                 "intermediate" => 48,
-                "server" | "client" | "server-and-client" => 7,
+                "server" | "client" | "server-and-client" | "leaf" => 7,
                 _ => return Err("Root CA renewal is not supported".into()),
             };
             if old.revoked_at.is_some() {
@@ -47,7 +47,7 @@ impl Service {
         password::verify(&self.db, admin)?;
         if !matches!(
             self.db.metadata(id)?.kind.as_str(),
-            "server" | "client" | "server-and-client"
+            "server" | "client" | "server-and-client" | "leaf"
         ) {
             return Err("leaf certificate fingerprint required".into());
         }

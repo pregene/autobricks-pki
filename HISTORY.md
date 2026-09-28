@@ -1,5 +1,18 @@
 # Development history
 
+## 1.0.127 — 2026-09-28
+
+- Built and verified eight release packages for Ubuntu 22.04/24.04 on amd64/arm64, with server-plus-client and client-only variants and SHA-256 checksums. Native version/help and architecture/dependency checks passed; ARM64 runtime and package installation were not tested.
+
+## 1.0.126 — 2026-09-28
+
+- Documented the CA name/policy extension profile example in the Intermediate CA guide.
+
+- Documented field-level length and encoding limits and a complete extended creation example, retaining separate certificate identifiers and project field names.
+- Added extended DN, seven SAN forms, Key Usage/EKU, policy, access-information, directory-attribute, TLS-feature, OCSP no-check, QC-statement and private-extension input encoding. Application meaning is left to certificate consumers; input sizes and ASN.1 representations are bounded.
+- Preserved supplied extension criticality and full stored profiles across renewal, with non-TLS leaves included in listing and lifecycle queries. Existing key storage and three-file downloads remain unchanged.
+- Added nine cumulative certificate read-back regressions covering field values, ASN.1 types, critical flags, all typed encodings, length boundaries, renewal, legacy downloads and index compatibility. Panic gate passed 86 Rust tests and 10 isolated installer tests. Post-deployment validation passed 38 installed-service checks and 43 isolated cumulative regression checks.
+
 ## 1.0.117 — 2026-09-28
 
 - Added Docker builds for Ubuntu 22.04 and 24.04 on amd64 and arm64, producing eight server/client package artifacts with native executable and cross-target ELF checks and SHA-256 checksums.

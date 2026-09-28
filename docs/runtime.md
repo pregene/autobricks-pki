@@ -151,7 +151,7 @@ The daemon owns TLS connections and loads the OS trust bundle. CLI commands use 
 
 ## Certificate creation
 
-`create` reads a JSON request from standard input. `issuer` accepts an Intermediate CA CN or its SHA-256 fingerprint. The CN selects its newest certificate generation. `kind` is `server`, `client`, or `server-and-client`.
+`create` reads a JSON request from standard input. `issuer` accepts an Intermediate CA CN or its SHA-256 fingerprint. The CN selects its newest certificate generation. `extended_key_usage` accepts EKU names or OIDs. Legacy `kind` remains `server`, `client`, or `server-and-client`; use one selector, not both.
 
 ```sh
 abpki-cli create <<'JSON'
@@ -167,9 +167,9 @@ abpki-cli create <<'JSON'
 JSON
 ```
 
-Omitting `validity` uses the current UTC time and a 47-day lifetime. A custom `validity` object contains `not_before` and `not_after` as Unix timestamps in seconds, subject to the issuer boundary. Server profiles require a supported purpose URI and at least one address for automatic DNS registration. Leaf CNs contain 1–24 ASCII letters, digits, or hyphens, without leading or trailing hyphens, and are normalized to lowercase. New leaf issuance rejects existing CNs across all issuers and certificate kinds; renewal preserves the existing CN. Server DNS names are generated as `<intermediate>-<cn>.<baseDomain>` and inserted into DNS SAN. Omit `dns_names` or supply exactly that generated name. Autobricks DNS receives the corresponding A/AAAA records. Existing external records with different addresses remain delivery conflicts. See [CN and DNS rules](../COMMON-NAME.md).
+Omitting `validity` uses the current UTC time and a 47-day lifetime. A custom `validity` object contains `not_before` and `not_after` as Unix timestamps in seconds, subject to the issuer boundary. Server profiles require at least one address for automatic DNS registration. URI contents are encoded without checking their application meaning. Leaf CNs contain 1–24 ASCII letters, digits, or hyphens, without leading or trailing hyphens, and are normalized to lowercase. New leaf issuance rejects existing CNs across all issuers and certificate kinds; renewal preserves the existing CN. Server DNS names are generated as `<intermediate>-<cn>.<baseDomain>` and inserted into DNS SAN. Omit `dns_names` or supply exactly that generated name. Autobricks DNS receives the corresponding A/AAAA records. Existing external records with different addresses remain delivery conflicts. See [CN and DNS rules](../COMMON-NAME.md).
 
-Client-only profiles do not trigger DNS registration. Leaf certificate subjects currently contain the Common Name; additional identity information is supplied through DNS, IP, and URI SANs. Issued leaf certificates include AIA OCSP and CRL Distribution Points URLs derived from `ABPKI_ORIGIN`.
+Client-only profiles do not trigger DNS registration. Leaf profiles accept the documented DN attributes, seven SAN forms, usage and extension fields; field lengths and ASN.1 representation are checked. See [complete profile and input limits](../LEAF-CREATE.md#certificate-field-support). Issued leaf certificates include AIA OCSP and CRL Distribution Points URLs derived from `ABPKI_ORIGIN`.
 
 The JSON response contains `certificate`, `download_token`, and `integrations_pending`. The CLI stores the fingerprint/token association in the invoking user's protected local credential record; list and status endpoints never return it or private keys. A pending integration is retried from SQLite and does not require issuing another certificate.
 

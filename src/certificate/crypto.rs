@@ -1,7 +1,7 @@
 use crate::{
     Result,
     certificate::{
-        profile::{Distribution, LeafKind, LeafProfile},
+        profile::{Distribution, LeafProfile},
         validity::Validity,
     },
 };
@@ -13,11 +13,8 @@ use openssl::{
     nid::Nid,
     pkey::{PKey, Private},
     x509::{
-        X509, X509Builder, X509Extension, X509NameBuilder,
-        extension::{
-            AuthorityKeyIdentifier, BasicConstraints, ExtendedKeyUsage, KeyUsage,
-            SubjectAlternativeName, SubjectKeyIdentifier,
-        },
+        X509, X509Builder, X509NameBuilder,
+        extension::{AuthorityKeyIdentifier, BasicConstraints, KeyUsage, SubjectKeyIdentifier},
     },
 };
 pub fn key() -> Result<PKey<Private>> {
@@ -126,57 +123,58 @@ pub fn leaf(
     distribution: &Distribution,
     issuer_id: &str,
 ) -> Result<(X509, PKey<Private>)> {
+    let prepared = super::extensions::prepare(profile)?;
     let key = key()?;
     let mut b = base(&profile.common_name, &key, Some(issuer), profile.validity)?;
-    b.append_extension(BasicConstraints::new().critical().build()?)?;
-    b.append_extension(KeyUsage::new().critical().digital_signature().build()?)?;
-    let mut eku = ExtendedKeyUsage::new();
-    if profile.kind.is_server() {
-        eku.server_auth();
+    b.set_subject_name(&prepared.subject)?;
+    let mut constraints = BasicConstraints::new();
+    if super::extensions::critical(profile, "basic_constraints", true)? {
+        constraints.critical();
     }
-    if profile.kind != LeafKind::Server {
-        eku.client_auth();
-    }
-    b.append_extension(eku.build()?)?;
-    let mut san = SubjectAlternativeName::new();
-    for name in &profile.dns_names {
-        san.dns(name);
-    }
-    for ip in &profile.ip_addresses {
-        san.ip(&ip.to_string());
-    }
-    for uri in &profile.uri_sans {
-        san.uri(uri);
-    }
-    if !profile.dns_names.is_empty()
-        || !profile.ip_addresses.is_empty()
-        || !profile.uri_sans.is_empty()
-    {
-        let e = san.build(&b.x509v3_context(Some(issuer), None))?;
-        b.append_extension(e)?;
+    b.append_extension(constraints.build()?)?;
+    for extension in prepared.extensions {
+        b.append_extension(extension)?;
     }
     let ski = SubjectKeyIdentifier::new().build(&b.x509v3_context(Some(issuer), None))?;
-    b.append_extension(ski)?;
+    let (_, _, ski_value) = super::extensions::extension_parts(&ski.to_der()?)?;
+    b.append_extension(super::values::extension(
+        "2.5.29.14",
+        super::extensions::critical(profile, "subject_key_identifier", false)?,
+        &ski_value,
+    )?)?;
     let aki = AuthorityKeyIdentifier::new()
         .keyid(true)
         .build(&b.x509v3_context(Some(issuer), None))?;
-    b.append_extension(aki)?;
-    #[allow(deprecated)]
-    let aia = X509Extension::new_nid(
-        None,
-        Some(&b.x509v3_context(Some(issuer), None)),
-        Nid::INFO_ACCESS,
-        &format!("OCSP;URI:{}", distribution.ocsp()),
-    )?;
-    b.append_extension(aia)?;
-    #[allow(deprecated)]
-    let crl = X509Extension::new_nid(
-        None,
-        Some(&b.x509v3_context(Some(issuer), None)),
-        Nid::CRL_DISTRIBUTION_POINTS,
-        &format!("URI:{}", distribution.crl(issuer_id)?),
-    )?;
-    b.append_extension(crl)?;
+    let (_, _, aki_value) = super::extensions::extension_parts(&aki.to_der()?)?;
+    b.append_extension(super::values::extension(
+        "2.5.29.35",
+        super::extensions::critical(profile, "authority_key_identifier", false)?,
+        &aki_value,
+    )?)?;
+    use super::values::{extension, oid};
+    use crate::revocation::der::{seq, tlv};
+    let aia = seq(&[seq(&[
+        oid("1.3.6.1.5.5.7.48.1")?,
+        tlv(0x86, distribution.ocsp().as_bytes()),
+    ])]);
+    b.append_extension(extension(
+        "1.3.6.1.5.5.7.1.1",
+        super::extensions::critical(profile, "authority_info_access", false)?,
+        &aia,
+    )?)?;
+    let crl = seq(&[seq(&[tlv(
+        0xa0,
+        &tlv(0xa0, &tlv(0x86, distribution.crl(issuer_id)?.as_bytes())),
+    )])]);
+    b.append_extension(extension(
+        "2.5.29.31",
+        super::extensions::critical(profile, "crl_distribution_points", false)?,
+        &crl,
+    )?)?;
     b.sign(issuer_key, MessageDigest::sha256())?;
-    Ok((b.build(), key))
+    let certificate = b.build();
+    if certificate.to_der()?.len() > 32768 {
+        return Err("certificate exceeds 32768 DER bytes".into());
+    }
+    Ok((certificate, key))
 }

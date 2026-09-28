@@ -127,6 +127,7 @@ impl Fixture {
             .create(Create {
                 issuer: "www.autobricks.internal".into(),
                 profile: LeafProfile {
+                    extra: Default::default(),
                     kind: LeafKind::Server,
                     common_name: format!("web{}", self.service.db.all().unwrap().len()),
                     dns_names: vec![],
@@ -316,6 +317,7 @@ fn ca_renewal_preserves_status_and_dns_retries() {
         .create(Create {
             issuer: old.fingerprint.clone(),
             profile: LeafProfile {
+                extra: Default::default(),
                 kind: LeafKind::Client,
                 common_name: "client".into(),
                 dns_names: vec![],
@@ -978,6 +980,7 @@ fn leaf_names_are_unique_and_dns_names_follow_issuer_and_cn() {
     let make = |cn: &str, issuer: &str, kind: LeafKind| Create {
         issuer: issuer.into(),
         profile: LeafProfile {
+            extra: Default::default(),
             common_name: cn.into(),
             kind,
             dns_names: vec![],
@@ -1268,6 +1271,7 @@ fn ca_lineage_keeps_crl_numbers_and_revocations_across_generations() {
             .create(Create {
                 issuer: issuer.into(),
                 profile: LeafProfile {
+                    extra: Default::default(),
                     kind: LeafKind::Client,
                     common_name: cn.into(),
                     dns_names: vec![],
@@ -1680,6 +1684,7 @@ fn ocsp_cache_refreshes_after_intermediate_renewal() {
         .create(Create {
             issuer: old.fingerprint.clone(),
             profile: LeafProfile {
+                extra: Default::default(),
                 kind: LeafKind::Client,
                 common_name: "cache-leaf".into(),
                 dns_names: vec![],
@@ -2717,3 +2722,6 @@ fn automatic_leaf_pending_window_and_ca_retirement_are_independent() {
         Some(None)
     );
 }
+
+#[path = "profile/fields.rs"]
+mod profile_fields;

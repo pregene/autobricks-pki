@@ -1,7 +1,7 @@
 use crate::{
     Result,
     revocation::{self, Status},
-    server::service::{Create, Service, now},
+    server::service::{Service, now},
     transport::request::Request,
 };
 use serde_json::{Value, json};
@@ -161,7 +161,7 @@ fn route(s: &Service, r: &Request) -> Result<Response> {
             return Err("JSON content type required".into());
         }
         if r.path == "/api/create" {
-            return json_response(s.create(serde_json::from_slice::<Create>(&r.body)?)?);
+            return json_response(s.create(crate::certificate::input::create(&r.body)?)?);
         }
         if matches!(
             r.path.as_str(),

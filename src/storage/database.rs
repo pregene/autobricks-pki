@@ -119,7 +119,7 @@ impl Database {
             self.ocsp_issuers.borrow_mut().generation = None;
         }
         if let Some(issuer) = &c.issuer {
-            self.conn.execute("INSERT INTO intermediate_leaf(intermediate_idx,leaf_idx) SELECT issuer.idx,leaf.idx FROM certificates issuer,certificates leaf WHERE issuer.fingerprint=? AND issuer.kind='intermediate' AND leaf.fingerprint=? AND leaf.kind IN ('server','client','server-and-client')", params![issuer,c.fingerprint])?;
+            self.conn.execute("INSERT INTO intermediate_leaf(intermediate_idx,leaf_idx) SELECT issuer.idx,leaf.idx FROM certificates issuer,certificates leaf WHERE issuer.fingerprint=? AND issuer.kind='intermediate' AND leaf.fingerprint=? AND leaf.kind IN ('server','client','server-and-client','leaf')", params![issuer,c.fingerprint])?;
         }
         Ok(())
     }

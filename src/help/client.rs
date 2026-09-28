@@ -13,7 +13,7 @@ pub(super) const OPERATIONS: &[Operation] = &[
         usage: "create",
         description: "Issue a server or client certificate using a JSON request from standard input.",
         details: concat!(
-            "Input:\n  JSON containing issuer and profile.\n  Choose issuer from abpki-cli list-ca and replace the sample CN and IP.\n  Server certificates require exactly one purpose URI SAN.\n\nRequest JSON example:\n",
+            "Input:\n  JSON containing issuer and profile.\n  Choose issuer from abpki-cli list-ca and replace the sample CN and IP.\n  Extended profiles accept DN, SAN, usage and extension fields; see LEAF-CREATE.md.\n\nRequest JSON example:\n",
             r#"{
   "issuer": "www.autobricks.internal",
   "profile": {

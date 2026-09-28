@@ -62,6 +62,7 @@ impl Service {
             }
             let issuer = self.db.issuer(&format!("app.{base_domain}"))?;
             let profile = LeafProfile {
+                extra: Default::default(),
                 kind: LeafKind::Server,
                 common_name: "pki".into(),
                 dns_names: vec![hostname.into()],

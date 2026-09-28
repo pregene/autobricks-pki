@@ -3,6 +3,15 @@ import os
 from pathlib import Path
 
 CASES = [
+    ('lifecycle', 'profile_fields::san_duplicates_and_constraint_values_are_not_reinterpreted', 'FIXED-25 Repeated SANs and opaque constraint values preserve input'),
+    ('lifecycle', 'profile_fields::typed_values_and_usage_bits_survive_certificate_round_trip', 'FIXED-25 All typed values and KU bits read back from certificates'),
+    ('lifecycle', 'profile_fields::legacy_profiles_downloads_and_service_generated_fields_are_preserved', 'FIXED-25 Legacy profiles, generated fields and protected three-file download'),
+    ('lifecycle', 'profile_fields::extended_profiles_use_indexes_and_leave_invalid_input_unstored', 'FIXED-25 Extended profile indexes and validation before storage'),
+    ('lifecycle', 'profile_fields::all_fields_are_encoded_with_values_types_and_critical_flags', 'FIXED-25 All profile fields read back from issued DER'),
+    ('lifecycle', 'profile_fields::supplied_values_are_not_relying_application_policy', 'FIXED-25 Caller values preserved without application policy checks'),
+    ('lifecycle', 'profile_fields::field_length_boundaries_use_characters_and_preserve_input', 'FIXED-25 Unicode and ASCII field length boundaries'),
+    ('lifecycle', 'profile_fields::strict_profile_input_rejects_size_and_structural_errors', 'FIXED-25 Profile size and structural errors'),
+    ('lifecycle', 'profile_fields::renewal_preserves_extended_profile_and_non_tls_leaf_lifecycle', 'FIXED-25 Extended profile renewal and non-TLS leaf listing'),
     ('autobricks_pki', 'server::delivery::tests::dns_wait_releases_service_lock_and_acknowledges_only_success', 'FIXED-10 DNS wait releases server lock'),
     ('autobricks_pki', 'server::delivery::tests::truelog_wait_releases_lock_and_completed_event_is_not_resubmitted', 'FIXED-10 TrueLog wait releases lock; no completed-event retry'),
     ('lifecycle', 'background_delivery_defers_external_tools_but_publishes_revocation', 'FIXED-10 External delivery does not block revocation publication'),
@@ -45,6 +54,7 @@ def execute(project, test, run, require):
     print('These checks exercise build artifacts, not the installed database.', flush=True)
     sources = list((project / 'src').rglob('*.rs')) + list((project / 'tests').rglob('*.rs'))
     sources += list((project / 'src').rglob('*.sql'))
+    sources += list((project / 'tests/fixtures').glob('*.json'))
     sources += [project / 'Cargo.toml', project / 'Cargo.lock']
     newest_source = max(path.stat().st_mtime_ns for path in sources)
     binaries = {}

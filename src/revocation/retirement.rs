@@ -15,7 +15,7 @@ impl Service {
         loop {
             let count = self.db.transaction(|| {
                 let mut query = self.db.conn.prepare(
-                    "SELECT idx,fingerprint,issuer FROM certificates WHERE valid='SUPERSEDED' AND revoked_at IS NULL AND superseded_at<=?1 AND (kind IN ('server','client','server-and-client') OR (kind='intermediate' AND superseded_at<=?2)) ORDER BY superseded_at,idx LIMIT 256",
+                    "SELECT idx,fingerprint,issuer FROM certificates WHERE valid='SUPERSEDED' AND revoked_at IS NULL AND superseded_at<=?1 AND (kind IN ('server','client','server-and-client','leaf') OR (kind='intermediate' AND superseded_at<=?2)) ORDER BY superseded_at,idx LIMIT 256",
                 )?;
                 let due = query.query_map(params![cutoff, ca_cutoff], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?)))?
                     .collect::<rusqlite::Result<Vec<_>>>()?;

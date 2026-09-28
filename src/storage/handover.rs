@@ -10,7 +10,7 @@ impl Database {
     pub(crate) fn mark_due_leaves(&self, timestamp: i64) -> Result<()> {
         loop {
             let changed = self.conn.execute(
-                "UPDATE certificates SET valid='SUPERSEDED',superseded_at=COALESCE(superseded_at,?1) WHERE idx IN (SELECT idx FROM certificates WHERE kind IN ('server','client','server-and-client') AND valid='VALID' AND revoked_at IS NULL AND not_before<=?1 AND not_after>?1 AND not_after<=?2 ORDER BY not_after,idx LIMIT 256)",
+                "UPDATE certificates SET valid='SUPERSEDED',superseded_at=COALESCE(superseded_at,?1) WHERE idx IN (SELECT idx FROM certificates WHERE kind IN ('server','client','server-and-client','leaf') AND valid='VALID' AND revoked_at IS NULL AND not_before<=?1 AND not_after>?1 AND not_after<=?2 ORDER BY not_after,idx LIMIT 256)",
                 params![timestamp, timestamp.saturating_add(crate::certificate::validity::RENEWAL_SECONDS)],
             )?;
             if changed < 256 {

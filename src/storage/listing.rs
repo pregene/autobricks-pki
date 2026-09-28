@@ -96,7 +96,7 @@ impl Database {
         let kinds = if intermediate {
             "kind='intermediate'"
         } else {
-            "kind IN ('server','client','server-and-client')"
+            "kind IN ('server','client','server-and-client','leaf')"
         };
         let mut query = self.conn.prepare(&format!(
             "SELECT idx,cn,fingerprint,valid,not_before,MAX(0,(not_after-?1+86399)/86400) FROM certificates WHERE {kinds} AND {state} AND idx>?2 AND idx<=?3 ORDER BY idx LIMIT ?4"))?;
