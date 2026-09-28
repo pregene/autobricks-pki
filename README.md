@@ -4,7 +4,7 @@
 
 Root CA and Intermediate CA management, with purpose-specific server and client certificate issuance, renewal, and revocation for the Autobricks product family.
 
-Implementation language: **Rust**. Supported platform: **Linux only**.
+Supported platform: **Linux only**.
 
 Server binary: `abpkid`.
 
@@ -29,7 +29,7 @@ Initial installation creates one Root CA and six Intermediate CAs: `database`, `
 
 ## Runtime
 
-[Package installation and removal](INSTALL.md) · [Build and tests](docs/build.md) · [Configuration and operation](docs/runtime.md) · [Service files and directories](FILES.md)
+[Package installation and removal](INSTALL.md) · [Source builds](docs/build.md) · [Building packages](PACKAGE.md) · [Configuration and operation](docs/runtime.md) · [Service files and directories](FILES.md)
 
 ## Certificate services
 
@@ -58,7 +58,7 @@ All downloaded certificates, private keys, and trust chains use PEM encoding. Ea
 
 `abpkid` keeps its live SQLite database on mutable storage outside WORM. `autobricks-worm` provides appendable WORM storage for audit logs and generated certificates, and can also store SQLite backup copies. Certificates, encrypted private-key PEM copies, and backup files can be written directly through `/mnt/worm-storage`, through the WORM mount provided by the required `autobricks-truelog` installation.
 
-[Storage](docs/storage.md) · [SQLite schema](DDL.md) · [Result and error codes](ERROR.md) · [SQLite notice](licenses/SQLite-PUBLIC-DOMAIN.md)
+[Storage](docs/storage.md) · [Stored certificate information](DDL.md) · [Result and error codes](ERROR.md) · [SQLite notice](licenses/SQLite-PUBLIC-DOMAIN.md)
 
 ## Certificate validity
 
@@ -80,7 +80,7 @@ The Root CA has no defined expiration. Intermediate CA default and maximum valid
 
 ## Key storage
 
-Version 1.0 uses software cryptography with P-256 keys and SHA-256 signatures. The storage design keeps encrypted private-key files on WORM and their paths, encryption password, and salted administrator password hash in SQLite. Certificate, private-key, and CRL PEM contents are stored only on WORM. The service has no user accounts or user management.
+Version 1.0 uses software cryptography with P-256 keys and SHA-256 signatures. The service keeps encrypted private-key files on WORM and their paths, encryption password, and salted administrator password hash in SQLite. Certificate, private-key, and CRL PEM contents are stored only on WORM. The service has no user accounts or user management.
 
 [Key storage](docs/key-storage.md)
 

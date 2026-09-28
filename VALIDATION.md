@@ -9,7 +9,7 @@
 | Server certificate | 47 days | Periodic checks and renewal by the certificate holder |
 | Client certificate | 47 days | Periodic checks and renewal by the certificate holder |
 
-Intermediate CA validity may be shortened at creation but cannot exceed its installation-derived maximum. Leaf validity periods can be changed at creation. Server and client certificates are leaf certificates. Their validity must remain within the issuing Intermediate CA certificate's validity, including when a custom duration is requested.
+Installation-created Intermediate CAs use the installation-derived lifetime; additional CA creation is unavailable in 1.0. Leaf validity periods can be changed at creation. Server and client certificates are leaf certificates. Their validity must remain within the issuing Intermediate CA certificate's validity, including when a custom duration is requested.
 
 ## Installation retention boundary
 
@@ -21,7 +21,7 @@ intermediate_max_days = min(398, truelog_retention_days - 7)
 
 A 365-day retention setting yields 358 days. This value is calculated from installation settings, not fixed at 358. The seven-day margin is measured in elapsed 24-hour days. Missing, unreadable, invalid, or duplicate retention settings prevent CA initialization; retention must exceed seven days.
 
-SQLite stores the observed retention and resulting limit in `settings.ca_validity_policy`. Initial default CAs, additional CA creation, and internal CA renewal use this limit. Explicit validity requests above the limit are rejected. A later TrueLog setting change does not automatically alter this stored policy or the signed contents of existing certificates.
+SQLite stores the observed retention and resulting limit in `settings.ca_validity_policy`. Initial default CAs and internal CA renewal use this limit. A later TrueLog setting change does not automatically alter this stored policy or the signed contents of existing certificates.
 
 The setting describes the protection period assigned to newly created WORM files. Existing WORM files keep their original retention deadlines. This policy does not change TrueLog configuration or extend existing files' protection.
 

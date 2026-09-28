@@ -2,7 +2,7 @@
 
 Autobricks PKI Server 1.0 issues certificates through an Intermediate CA. `extended_key_usage` selects certificate EKUs; legacy `kind` requests remain accepted. Any connected client can request issuance without an account, administrator password, or client certificate. The local `abpki-client` service verifies the server certificate and hostname using the OS trust store populated with the PKI Root CA during client installation.
 
-This document specifies the creation flow with WORM as the source store and numeric CA-to-leaf relationships. Certificate and key PEM contents reside only on WORM. The audit-history schema below is not yet populated by the runtime.
+Issued certificate and encrypted-key files reside on WORM. The service retains their identities, issuer relationships and lifecycle state for subsequent status queries, renewal and revocation.
 
 ## Request interface
 
@@ -49,21 +49,17 @@ Purpose and CIDR access URNs describe certificate claims. Open issuance does not
 
 ## Issuance processing
 
-1. Resolve the Intermediate CA, verify that it is `VALID` and currently usable, and normalize the leaf CN. For a server-capable profile, generate the DNS name and insert it into DNS SAN.
-2. Validate input sizes, ASN.1 representations, existing DNS registration constraints, and the validity interval. An interval exceeding the issuer boundary is rejected rather than shortened automatically.
-3. Load the issuer certificate and encrypted private key from their WORM paths. Verify the certificate fingerprint and key correspondence, then decrypt the key in memory using the password from SQLite.
-4. Start a SQLite `BEGIN IMMEDIATE` transaction and recheck the issuer state and CN/DNS uniqueness before issuance. Reject an existing leaf CN across issuers and leaf kinds, including expired or revoked records. Use targeted indexed lookups; do not load all certificate PEMs or decrypt unrelated keys to check uniqueness.
-5. Generate a new P-256 private key and a random positive serial number. Sign an X.509 v3 certificate using the selected Intermediate CA and SHA-256. Generate the certificate access token and its hash.
-6. Write the certificate PEM and encrypted PKCS#8 private-key PEM to WORM and synchronize the files. WORM failure prevents issuance success.
-7. Insert certificate metadata and WORM paths into SQLite with `valid=VALID`, `superseded_at=NULL`, `revoked_at=NULL`, and `previous_certificate_idx=NULL`. Retain the issuance profile and token hash; do not store PEM contents or the plaintext token.
-8. Insert `intermediate_leaf(intermediate_idx, leaf_idx)` using the actual issuer and new leaf row IDs. Queue the `CREATE` audit event with result `200` and any server DNS registrations in the same transaction. Commit.
-9. Return the certificate, access token, and delivery state. A background worker submits queued audit work through `ab-truelog-cli` and registers DNS through Autobricks DNS. Persistent confirmed audit rows are specified in [DDL.md](DDL.md#audit-history-schema) but are not yet written by the runtime.
+1. Select a currently usable VALID Intermediate CA and apply the CN naming rules. For a server-capable certificate, add the generated DNS name to DNS SAN.
+2. Check input sizes, encoding representations, existing DNS registration constraints and the validity interval. PKI does not evaluate application policy claims.
+3. Generate a P-256 key and sign a certificate containing the supplied supported fields and server-managed fields.
+4. Store the certificate and encrypted key on WORM and retain the certificate's identity, issuer and renewal profile.
+5. Return the certificate, access token and delivery state. The CLI saves the access token privately. The service submits audit events through TrueLog and registers server DNS records through Autobricks DNS.
 
-The transaction serializes issuer-state and uniqueness checks with metadata insertion. WORM files cannot be rolled back with SQLite; an interrupted issuance can leave retained, unreferenced files. Those files do not represent a successfully committed certificate.
+## Certificate extensions
 
 | Certificate extension | Value |
 | --- | --- |
-| Basic Constraints | Critical, CA=false. |
+| Basic Constraints | CA=false; critical by default. |
 | Key Usage | Requested bits; default critical digitalSignature. |
 | Extended Key Usage | Requested names/OIDs, or the EKUs selected by legacy `kind`. |
 | Subject Alternative Name | DNS, IP, URI, email, directoryName, registeredID and otherName values from the profile. |
@@ -74,30 +70,28 @@ The transaction serializes issuer-state and uniqueness checks with metadata inse
 ```mermaid
 sequenceDiagram
     participant Client as abpki-cli
-    participant Local as abpki-client
+    participant Local as Local client service
     participant PKI as abpkid
-    participant DB as SQLite
-    participant WORM as WORM mount
+    participant WORM as WORM storage
     participant Log as TrueLog
     participant DNS as Autobricks DNS
-    Client->>Local: create(profile, issuer) through Unix socket
-    Local->>PKI: create using installed TLS configuration
-    PKI->>DB: Begin#59; check CN and DNS uniqueness
-    PKI->>PKI: Validate, generate key, sign certificate
-    PKI->>WORM: Write certificate and encrypted key#59; synchronize
-    PKI->>DB: Store metadata, paths, token hash, CA-leaf relation, outbox#59; commit
-    PKI->>Log: Submit CREATE event with result 200
+    Client->>Local: Create with issuer and profile
+    Local->>PKI: Forward request over TLS
+    PKI->>PKI: Check input limits and CN/DNS rules
+    PKI->>PKI: Generate key and sign supplied fields
+    PKI->>WORM: Save certificate and encrypted key
+    PKI->>Log: Submit issuance event
     opt Server-capable certificate
         PKI->>DNS: Register A/AAAA records
     end
-    PKI-->>Local: certificate, download_token, integrations_pending
-    Local-->>Client: Result through Unix socket
-    Client->>Client: Save fingerprint and token in caller-owned credential record
+    PKI-->>Local: Certificate, token and delivery state
+    Local-->>Client: Creation result
+    Client->>Client: Save fingerprint and token privately
 ```
 
 ## Result and artifact delivery
 
-The JSON result contains `certificate`, `download_token`, and `integrations_pending`. The certificate result identifies the fingerprint, CN, issuer, serial, validity, and lifecycle state. Any certificate PEM returned in the response is read from WORM; it is not a SQLite column. The result excludes private keys, token hashes, and the stored profile. The CLI saves the returned fingerprint/token association in the calling user's protected local credential record before reporting completion. Normal output omits the token. Listing and status operations cannot recover it. See [per-operation socket data](docs/runtime.md#per-operation-data-through-the-unix-socket).
+The JSON result contains `certificate`, `download_token`, and `integrations_pending`. The certificate result identifies the fingerprint, CN, issuer, serial, validity, and lifecycle state. The result excludes private keys, token hashes, and the stored profile. The CLI saves the returned fingerprint/token association in the calling user's protected local credential record before reporting completion. Normal output omits the token. Listing and status operations cannot recover it. See [per-operation socket data](docs/runtime.md#per-operation-data-through-the-unix-socket).
 
 `integrations_pending=true` means external delivery is outstanding, potentially including an earlier queued operation; it does not necessarily indicate a delivery failure. Certificate issuance has already committed. The server retries pending work during maintenance; the client must not create another certificate merely to retry DNS or audit delivery. WORM certificate and key files must already be stored before issuance success.
 
@@ -120,17 +114,17 @@ abpki-cli download <fingerprint> web01
 
 ## Failure and retry behavior
 
-Validation or transactional failure rolls back SQLite metadata, relationships, and queued operations. WORM files already written remain subject to retention. DNS or audit delivery failure after commit retains the issued certificate and pending operations. Missing or unreadable issuer files, failed WORM writes, signing failure, and database faults produce a server error rather than a successful issuance. A lost issuance response can leave a committed certificate whose token the client never received; the interface has no issuance request identifier or token recovery operation. Repeating `create` with the same CN is rejected by uniqueness checks.
+Rejected issuance does not return a successfully created certificate. WORM files already written remain subject to retention. DNS or audit delivery failure after commit retains the issued certificate and pending operations. Missing or unreadable issuer files, failed WORM writes, signing failure, and database faults produce a server error rather than a successful issuance. A lost issuance response can leave a committed certificate whose token the client never received; the interface has no issuance request identifier or token recovery operation. Repeating `create` with the same CN is rejected by uniqueness checks.
 
-[SQLite schema](DDL.md) · [Naming](COMMON-NAME.md) · [Revocation](LEAF-REVOKE.md) · [Renewal](LEAF-RENEW.md)
+[Stored certificate information](DDL.md) · [Naming](COMMON-NAME.md) · [Revocation](LEAF-REVOKE.md) · [Renewal](LEAF-RENEW.md)
 
-[Operation results and audit error codes](ERROR.md)
+[Operation results and errors](ERROR.md)
 
 ## Certificate field support
 
-The table separates the certificate field from the project field name. Full attribute or extension names belong in the description. Each field appears once; URI contents, Key Usage bits, and Extended Key Usage purposes are values rather than separate fields.
+The table lists certificate fields, their JSON input names, input limits and support status.
 
-`IMPLEMENTED` includes current input support and internal generation or management. `PLANNED` means support remains to be implemented. `N/A` means unsupported. Descriptions state input limitations. Project names use lowercase snake_case. Internal-only fields do not imply caller control over their values. [Request interface](#request-interface) lists the current create inputs. Existing input names and the designated `unit_name`, `private_oid`, and `csr` names are retained.
+`IMPLEMENTED` includes current input support and internal generation or management. `PLANNED` means support remains to be implemented. `N/A` means unsupported. Descriptions state input limitations. Project names use lowercase snake_case. Internal-only fields do not imply caller control over their values. [Request interface](#request-interface) lists the current create inputs.
 
 The limits below are product input/encoding bounds, not judgments about the meaning or application suitability of supplied values. Text lengths count Unicode scalar values unless marked ASCII bytes. A create request is limited to 65,536 UTF-8 bytes and the final certificate to 32,768 DER bytes. Omit optional fields rather than supplying null. Internally generated and N/A fields are not caller inputs. Existing CN naming and DNS registration constraints still apply.
 
@@ -140,7 +134,7 @@ Certificate identifiers follow [OpenSSL extension configuration](https://docs.op
 | --- | --- | --- | --- | --- |
 | Subject DN | CN | `common_name` | `commonName`. Current input: 1–24 ASCII bytes, letters/digits/hyphens only, no edge hyphens; normalized to lowercase. A leaf CN is globally unique.  | IMPLEMENTED |
 | Subject DN | O | `organization_name` | `organizationName`. Input: one UTF8String, 1–64 Unicode scalar values. | IMPLEMENTED |
-| Subject DN | OU | `unit_name` | `organizationalUnitName`. Input: one UTF8String, 1–64 Unicode scalar values. Project field name is unit_name. | IMPLEMENTED |
+| Subject DN | OU | `unit_name` | `organizationalUnitName`. Input: one UTF8String, 1–64 Unicode scalar values. | IMPLEMENTED |
 | Subject DN | C | `country_name` | countryName: exactly 2 PrintableString ASCII bytes; no country-code membership check. | IMPLEMENTED |
 | Subject DN | ST | `state_or_province_name` | `stateOrProvinceName`. Input: one UTF8String, 1–128 Unicode scalar values. | IMPLEMENTED |
 | Subject DN | L | `locality_name` | `localityName`. Input: one UTF8String, 1–128 Unicode scalar values. | IMPLEMENTED |
@@ -161,8 +155,8 @@ Certificate identifiers follow [OpenSSL extension configuration](https://docs.op
 | Subject DN | generationQualifier | `generation_qualifier` | Generation suffix. Input: one UTF8String, 1–16 Unicode scalar values. | IMPLEMENTED |
 | Subject DN | emailAddress | `subject_email` | Subject emailAddress: one IA5String value, 1–128 ASCII bytes. Mailbox meaning and ownership are not checked. | IMPLEMENTED |
 | Request | Certificate kind | `kind` | Legacy selector: server, client, server-and-client (6/6/17 ASCII bytes). Alternative to extended_key_usage; supplying both is ambiguous and rejected. | IMPLEMENTED |
-| Issuer DN | issuer | `issuer` | Top-level issuer selects an Intermediate CA by CN or fingerprint. Current generated Intermediate CN has a 1–16-byte name component and baseDomain of at most 24 ASCII bytes; fingerprint is 64 lowercase hexadecimal characters. Actual CA Subject supplies Issuer DN. validates these forms explicitly. | IMPLEMENTED |
-| Certificate body | validity | `validity` | Current optional object: not_before and not_after are signed 64-bit Unix-second integers; not_before < not_after, entirely within issuer validity and ASN.1 time encoding range. Omission uses current time plus 47 days. Retains the contract; examples omit this field. | IMPLEMENTED |
+| Issuer DN | issuer | `issuer` | Top-level issuer selects an Intermediate CA by CN or fingerprint. Current generated Intermediate CN has a 1–16-byte name component and baseDomain of at most 24 ASCII bytes; fingerprint is 64 lowercase hexadecimal characters. The actual CA Subject supplies Issuer DN. | IMPLEMENTED |
+| Certificate body | validity | `validity` | Current optional object: not_before and not_after are signed 64-bit Unix-second integers; not_before < not_after, entirely within issuer validity and ASN.1 time encoding range. Omission uses current time plus 47 days. | IMPLEMENTED |
 | SAN | dNSName | `dns_names` | 1–16 supplied IA5String values, each 1–253 ASCII bytes. Existing server issuance still accepts only the generated DNS name; omission generates it. Client-only values receive length/encoding checks. SAN total at most 64. | IMPLEMENTED |
 | SAN | iPAddress | `ip_addresses` | 1–16 supplied IP literals, encoded as 4-byte IPv4 or 16-byte IPv6 addresses. Existing server DNS registration still requires 1–2 addresses, at most one per family. SAN total at most 64. | IMPLEMENTED |
 | SAN | uniformResourceIdentifier | `uri_sans` | 1–16 IA5String values, each 1–2,048 ASCII bytes; SAN total at most 64. Contents and repetitions are preserved; no URI scheme, purpose, permission, CIDR-policy or endpoint checks. | IMPLEMENTED |
@@ -192,7 +186,7 @@ Certificate identifiers follow [OpenSSL extension configuration](https://docs.op
 | Extension | Private extension OID | `private_oid` | 1–16 objects: OID at most 100 ASCII bytes/20 components; typed value at most 4,096 DER bytes; text at most 1,024 scalars; required Boolean critical. Do not duplicate reserved/generated extension OIDs. Custom extension semantics are the consuming application’s responsibility. | IMPLEMENTED |
 | Extension control | critical | `critical` | Nonempty object, at most 32 extension project-name keys with Boolean values. Controls emitted extension flags without enforcing application profiles. Unknown/unemitted extension keys are errors. Private extension flags reside in their own objects. | IMPLEMENTED |
 | Certificate body | subjectPublicKeyInfo | `subject_public_key_info` | Internally generated P-256 EC public key and algorithm/curve identifiers; no caller input or selectable key length. Retains P-256 generated-key mode. | IMPLEMENTED |
-| CSR | CSR | `csr` | CSR input is not implemented. A CSR is a signed issuance request, not a certificate field. No CSR/private-key storage or download contract is introduced by the field-encoding implementation. | PLANNED |
+| CSR | CSR | `csr` | CSR input is not implemented. A CSR is a signed issuance request, not a certificate field. | PLANNED |
 | CSR | challengePassword | `challenge_password` | Unsupported. No accepted input value or length; not the administrator password. This key is not accepted; CSR import is not implemented. | N/A |
 | Certificate body | version | `version` | Internally fixed to X.509 v3 (ASN.1 INTEGER value 2); no caller input. | IMPLEMENTED |
 | Certificate body | serialNumber | `serial` | Internally generated positive 159-bit random integer, issuer-unique; current output is 40 uppercase hexadecimal characters without separators. No caller input. Subject serialNumber is a different field. | IMPLEMENTED |
@@ -446,4 +440,4 @@ The encoded typed value is limited to 4,096 DER bytes including tag and length. 
 
 The maximum create JSON body is 65,536 UTF-8 bytes including whitespace/escapes. Duplicate JSON keys, unknown members, null values, and nesting beyond the supported depth are invalid input representations. Individual collection/string limits appear in each field's Description. The final signed certificate is limited to 32,768 DER bytes before archival.
 
-The service retains its existing CN naming/uniqueness, generated server DNS and DNS registration address-count checks. Input extension contents do not establish verified identity, permission or compliance. CSR remains a separate, unimplemented issuance input; this example preserves server-generated keys and the existing three-file download archive.
+The service retains its existing CN naming/uniqueness, generated server DNS and DNS registration address-count checks. Input extension contents do not establish verified identity, permission or compliance. CSR input is unavailable. Keys are generated by the service, and downloads contain the certificate, matching key and trust chain.

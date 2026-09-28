@@ -1,6 +1,6 @@
 # Leaf certificate revocation
 
-Autobricks PKI Server 1.0 revokes a specific leaf certificate by fingerprint. Revocation requires the single administrator password. Possession of a certificate, its private key, or its download token does not authorize the standalone revocation command. The [renewal handover](LEAF-RENEW.md#download-completion-and-automatic-revocation) separately authorizes server-controlled automatic revocation of the recorded predecessor after replacement download confirmation. The service has no user accounts or per-user revocation roles.
+Autobricks PKI Server 1.0 revokes a specific leaf certificate by fingerprint. Revocation requires the single administrator password. Possession of a certificate, its private key, or its download token does not authorize the standalone revocation command. During [renewal handover](LEAF-RENEW.md#retirement), the service automatically revokes an old leaf seven days after its SUPERSEDED transition, independently of replacement download. The service has no user accounts or per-user revocation roles.
 
 Revocation records distrust of the certificate; it does not delete certificate records, private keys, WORM artifacts, or TrueLog audit records.
 
@@ -22,34 +22,28 @@ The operation accepts a leaf fingerprint rather than CN, because renewal generat
 
 ## Revocation processing
 
-1. Verify the administrator password against the salted PBKDF2 hash in SQLite.
-2. Start a SQLite `BEGIN IMMEDIATE` transaction and find the certificate. Reject an unknown fingerprint or a Root/Intermediate CA target.
-3. If the leaf is already revoked, return success without changing its original revocation timestamp or creating another revocation event.
-4. Set `revoked_at` to the current Unix UTC timestamp.
-5. Queue CRL publication for the issuer renewal lineage and the `certificate-revoked` audit event.
-6. Commit the revocation state and outbox entries atomically in SQLite. OCSP immediately observes the revoked state.
-7. Attempt immediate CRL publication to WORM with an incremented number and a fixed seven-day validity period. Publication failure leaves a retry pending without reversing revocation. Return `{"status":"REVOKED"}`; the background worker delivers the audit event through TrueLog.
+1. Check the administrator password and resolve the leaf fingerprint. Unknown fingerprints and CA targets are rejected.
+2. If the leaf is already revoked, return success without changing its original revocation time.
+3. Record the revocation. `check` and OCSP immediately observe the revoked status.
+4. Attempt immediate publication of the issuer CRL with a new number and seven-day validity. A failed publication remains pending and does not undo revocation.
+5. Return `{"status":"REVOKED"}`. Submit the revocation audit event to TrueLog; failed delivery is retried.
 
 ```mermaid
 sequenceDiagram
     participant Admin as abpki-cli
-    participant Local as Local client daemon
+    participant Local as Local client service
     participant PKI as abpkid
-    participant DB as SQLite
     participant Log as TrueLog
-    Admin->>Local: Socket revoke request with fingerprint and password
-    Local->>PKI: Forward operation and credential through TLS
-    PKI->>DB: Verify password#59; begin transaction
-    PKI->>DB: Find leaf and check revocation state
+    Admin->>Local: Revoke with fingerprint and administrator password
+    Local->>PKI: Forward request over TLS
+    PKI->>PKI: Check authorization and find leaf
     alt First revocation
-        PKI->>DB: Set revoked_at
-        PKI->>DB: Queue CRL publication and audit entry
+        PKI->>PKI: Record revoked status
+        PKI->>PKI: Publish updated issuer CRL
+        PKI->>Log: Submit revocation event
     end
-    PKI->>DB: Commit
-    PKI->>PKI: Attempt CRL publication#59; retain failed work for retry
-    PKI->>Log: Background worker submits audit event
     PKI-->>Local: REVOKED
-    Local-->>Admin: Result through Unix socket
+    Local-->>Admin: Revocation result
 ```
 
 ## Certificate status and operational effects
@@ -70,10 +64,10 @@ Revocation can target an expired leaf. New issuance still cannot reuse its reser
 
 ## Failure and retry behavior
 
-Invalid credentials, unknown targets, and CA targets are rejected. Failure to persist revocation rolls back the SQLite transaction, including its outbox entries. CRL generation or WORM publication failure occurs after that commit and cannot reverse revocation. OCSP continues reporting the committed revoked status.
+Invalid credentials, unknown targets, and CA targets are rejected. A failure to save revocation prevents a successful response. CRL generation or WORM publication failure occurs after that commit and cannot reverse revocation. OCSP continues reporting the committed revoked status.
 
 Audit delivery failure does not undo committed revocation. The current success response does not include an audit-delivery flag. Repeating an authorized request for an already revoked certificate is safe and returns `REVOKED`, including after a lost response.
 
-[Creation](LEAF-CREATE.md) · [Renewal](LEAF-RENEW.md) · [CRLs](CRL.md) · [OCSP](OCSP.md) · [SQLite schema](DDL.md)
+[Creation](LEAF-CREATE.md) · [Renewal](LEAF-RENEW.md) · [CRLs](CRL.md) · [OCSP](OCSP.md) · [Stored certificate information](DDL.md)
 
-[Operation results and audit error codes](ERROR.md)
+[Operation results and errors](ERROR.md)

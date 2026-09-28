@@ -35,7 +35,20 @@ Or, for a client-only host:
 sudo apt install ./build/autobricks-pki-cli-<version>-<os>-<os-version>-<architecture>.deb
 ```
 
-The screen collects the inputs described in [PACKAGE.md](PACKAGE.md). Tab moves between fields, Left/Right and Home/End move the text cursor, and Install starts provisioning. Validation errors remain on the settings screen. Backend failures display an error and do not report installation success. TLS and Root download connections retry temporary connection failures for up to 30 seconds while endpoints start. Certificate-verification failures stop immediately. Failed connection messages include the host and port and remain visible in dpkg output after the screen closes.
+The installer collects the inputs listed below. Tab moves between fields, Left/Right and Home/End move the text cursor, and Install starts provisioning. Validation errors remain on the settings screen. Backend failures display an error and do not report installation success. TLS and Root download connections retry temporary connection failures for up to 30 seconds while endpoints start. Certificate-verification failures stop immediately. Failed connection messages include the host and port and remain visible in dpkg output after the screen closes.
+
+## Installation inputs
+
+| Package | Input | Default or requirement |
+| --- | --- | --- |
+| Server | Base domain | `autobricks.internal`; at most 24 ASCII characters |
+| Server | DNS registration IP | Required reachable IPv4 or IPv6 address |
+| Server | Bind address | `0.0.0.0` |
+| Client only | Server address | Required DNS name or IP matching the server certificate |
+| Both | Management TLS port | `5545` |
+| Both | Public HTTPS port | `5546`; must differ from the management port |
+
+The included client uses the server installation settings without separate connection questions. Client-only installation does not create a CA hierarchy or request server WORM settings.
 
 ## Server and included client
 
@@ -102,4 +115,4 @@ abpki-cli list-ca
 
 `abpkid.service` exists only in the server package. Both packages include `abpki-cli.service`.
 
-[Package screens](PACKAGE.md) · [File layout](FILES.md) · [Runtime configuration](docs/runtime.md)
+[Building packages](PACKAGE.md) · [File layout](FILES.md) · [Runtime configuration](docs/runtime.md)

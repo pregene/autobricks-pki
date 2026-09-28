@@ -15,7 +15,9 @@ flowchart TD
 
 ## Certificate lifecycle
 
-Server certificates identify services and must include a `urn:autobricks:purpose:<purpose>` URI SAN, such as `mariadb`, `www`, or `api`. Issuance rejects a missing, empty, or unrecognized purpose. The [purpose catalog](../CERTITFICATE.md#server-purpose-uri-san) defines the accepted values. Client certificates identify clients in systems that use certificate-based client authentication. Certificate issuance applies to the intended server or client use. Renewal and revocation cover the certificate lifecycle. [Validity and renewal](../VALIDATION.md) specifies default lifetimes, issuer limits, and the CA/leaf renewal lifecycle.
+PKI creates certificates from the [supported profile fields](../LEAF-CREATE.md#certificate-field-support), renews them, revokes them and reports their status. Input length and encoding limits apply. The consuming server or client interprets and enforces purposes, policies and permissions carried by those fields.
+
+[Validity and renewal](../VALIDATION.md) describes default lifetimes, issuer limits and the CA/leaf renewal lifecycle.
 
 ## Server DNS registration
 

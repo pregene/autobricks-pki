@@ -114,7 +114,7 @@ Tokens are stored at `~/.abpki/<fingerprint>` in the invoking user's mode-0700 d
 | `abpki-cli` | Parse command arguments or request JSON, call the local socket, print results, and save downloaded files. |
 | `abpkid` | Validate certificate operation inputs and enforce administrator/token authorization. |
 
-The command and daemon share `abpki-cli`; `abpki-cli.service` invokes `daemon --config /etc/autobricks-pki-client/client.json`. `abpki-client` denotes the local client service in this interface description, not an additional established binary name.
+The command and daemon share `abpki-cli`; `abpki-cli.service` invokes `daemon --config /etc/autobricks-pki-client/client.json`. `abpki-client` denotes the local client service; its executable is `abpki-cli`.
 
 ```text
 Installation:
@@ -145,9 +145,9 @@ sequenceDiagram
     Daemon-->>CLI: Result through Unix socket
 ```
 
-The current PKI transport closes a connection after one management response. The local daemon must respect this framing; persistent remote connections require corresponding server protocol support. A lost response to a state-changing request must not cause an automatic replay that can issue another certificate.
+Each management connection carries one request and response. Lost responses to state-changing requests are not automatically replayed; an operation may already have completed.
 
-The daemon owns TLS connections and loads the OS trust bundle. CLI commands use the installed socket; `ABPKI_SOCKET` can select another local socket for isolated testing. `ABPKI_SERVER`, `ABPKI_TRUST_FILE`, and `ABPKI_ACCESS_TOKEN` are not per-command connection or credential inputs.
+The daemon owns TLS connections and loads the OS trust bundle. CLI commands use the installed socket; `ABPKI_SOCKET` selects an alternate local client socket. `ABPKI_SERVER`, `ABPKI_TRUST_FILE`, and `ABPKI_ACCESS_TOKEN` are not per-command connection or credential inputs.
 
 ## Certificate creation
 
@@ -231,19 +231,18 @@ Both listeners validate requests independently and close connections after one r
 
 [CLI functions](cli.md) · [Key storage](key-storage.md) · [CRL](../CRL.md) · [OCSP](../OCSP.md)
 
-## Request and delivery execution
+## Connection limits and pending delivery
 
-The server reuses its in-memory TLS configuration while the configured certificate fingerprint is unchanged. Each new connection still checks certificate revocation and expiry in SQLite. A changed fingerprint loads the replacement certificate, key, and trust chain from WORM and replaces the cached configuration.
+The server permits up to 32 combined connections with a 15-second connection deadline. The local client permits up to 16 concurrent requests; additional connections are closed while all slots are occupied. Restart the client service after changing its trust configuration.
 
-The client daemon builds its OS-trust TLS configuration once at startup and shares it among at most 16 concurrent relays. Additional connections are closed when all relay slots are occupied. Each relay retains a separate TCP/TLS connection and request; credentials remain request-specific. Restart the client daemon after changing its configured trust bundle.
+Certificate issuance and renewal can return `integrations_pending=true` while DNS or TrueLog delivery remains outstanding. Failed external delivery is retried. CRL publication retries proceed independently of DNS and TrueLog availability.
 
-During normal server operation, issuance and renewal queue DNS and TrueLog work and return with `integrations_pending` set when delivery remains outstanding. A separate worker performs external I/O without holding the shared service lock. Work is fetched in batches of 64, advancing past failures and pausing 30 seconds between complete passes. Database operations, certificate signing, and WORM publication still use the service lock; they are not fully parallelized. Installation initialization delivers its initial integrations synchronously.
+## List filters
 
-Revocation immediately attempts CRL publication after committing certificate status. Maintenance retries pending CRLs independently of external DNS/TrueLog delivery. Linked CA generations share one publication per revocation or expiry refresh, one CRL number increment, and one WORM artifact for that publication.
+Leaf and Intermediate CA list pages accept `status=valid|revoked|renew|all` with `after` and optional `through`. Omitted status defaults to `valid`; `renew` selects SUPERSEDED certificates. Unknown or duplicate status parameters are rejected. Each page preserves the selected filter and the initial upper index boundary.
 
+## Automatic retirement
 
-OCSP caches SHA-1/SHA-256 issuer name/key hashes in memory. A changed Intermediate CA generation refreshes that cache; no issuer cache or PEM body is added to SQLite. Each OCSP request is parsed once and current leaf status is queried by issuer and serial. Leaf revocation results are never cached.
+The service checks retirement at startup and every 30 seconds. Leaves retire seven days after their SUPERSEDED transition; Intermediate CAs retire after 48 days. Downloading or renewing does not extend those deadlines. Revocation remains effective even if CRL publication or audit delivery needs retrying.
 
-Leaf and Intermediate CA list pages accept `status=valid|revoked|renew|all` with `after` and optional `through`. Omitted status defaults to `valid`; `renew` selects stored `SUPERSEDED` rows. Unknown or duplicate status parameters are rejected. Both endpoints apply the state filter before pagination.
-
-SUPERSEDED retirement runs at startup and every maintenance pass independently of the hourly renewal gate. Leaf records with `superseded_at <= now - 604800` and CA records with `superseded_at <= now - 4147200` are revoked in indexed batches of 256. Revocation and audit/CRL tasks commit before signing. Missing transition timestamps are reported without fabricating a deadline. Root-signed CRLs publish retired Intermediate CAs through the same `/crl/<issuer>` endpoint.
+Root-signed CRLs report retired Intermediate CAs through `/crl/<root-fingerprint>` or the Root CN. See [CRL publication](../CRL.md).

@@ -2,6 +2,8 @@
 
 ## 1.0.127 — 2026-09-28
 
+- Separated package-building instructions from installation guidance and aligned certificate, storage and error guides with available functionality. Preserved certificate field names and JSON examples; checked 144 local links, nine JSON blocks and all 18 remaining Mermaid diagrams.
+
 - Quoted absolute-path labels in the service file layout diagram. All 23 documentation Mermaid blocks passed parser validation.
 
 - Escaped message semicolons in the leaf creation and revocation Mermaid sequence diagrams; parser verification reproduced the original errors and accepted the corrected diagrams.
@@ -116,7 +118,6 @@
 
 ## 1.0.069 — 2026-09-27
 
-- Built and inspected both Ubuntu 22.04 amd64 Debian packages, shared screen payloads, maintainer-script syntax, binary help, and distribution OpenSSL linkage.
 
 - Added server-plus-client and client-only Debian package composition with shared curses installation screens and separate package entry points.
 - Added the local Rust client daemon, Unix socket requests, installed JSON connection settings, OS trust loading, caller-owned token files, and hidden administrator password prompts.
@@ -129,7 +130,6 @@
 
 - Added package-specific curses installation screens with bounded input, inline limits, and a visible editing cursor.
 - Displayed the full VERSION in green and the product name and copyright in blue.
-- Added simulated installation progress and a generated 16-character ADMIN password on the server completion screen; preview execution keeps all values in memory.
 
 - Added PACKAGE.md describing combined server/client and client-only package composition, installation inputs, trust enrollment, and removal behavior.
 
@@ -180,7 +180,6 @@
 
 - Specified client installation Root CA retrieval, OS trust-store registration, verified TLS connection, and persisted endpoint configuration.
 
-- Clarified client installation address/port configuration, TOML connection fields, and separate daemon and Unix socket command responsibilities.
 
 - Documented Unix socket calls to a local PKI client service with installation-managed server and TLS trust configuration, and updated leaf creation and CLI flows.
 
@@ -188,13 +187,10 @@
 
 - Documented JSON array syntax for multiple URI SAN entries.
 
-- Aligned leaf creation documentation with VALID issuer selection, WORM source storage, numeric CA-to-leaf relations, and confirmed audit delivery.
 
 - Specified an indexed Intermediate-to-leaf relation table and WORM-only certificate/key contents with SQLite metadata and file paths.
 
-- Specified coordinated Intermediate CA and leaf handover, persisted transition timestamps, download-based retirement, and mandatory seven-day revocation with issuer-specific CRL publication requirements.
 
-- Specified automatic predecessor revocation after authenticated replacement download confirmation, including numeric renewal linkage and retry behavior.
 
 - Documented SUPERSEDED as a temporary certificate renewal handover state, distinct from CRL revocation, with existing-certificate use during replacement download.
 
@@ -202,15 +198,10 @@
 
 - Documented separator-free hexadecimal fingerprint and serial storage and aligned OCSP audit serial formatting with the existing serial encoder.
 
-- Expanded ERROR.md with per-operation failure conditions, validation precedence, management response mapping, OCSP outcome matrices, and retry and audit persistence boundaries.
 
-- Added ERROR.md defining shared integer operation results and linked audit results, OCSP status mapping, and certificate lifecycle documentation.
 
-- Removed the audit request identifier and mapped audit fields to existing socket, certificate, OCSP, outbox, and TrueLog data sources and runtime interfaces.
 
-- Simplified audit confirmation fields to TrueLog checksums and documented OCSP JSON payloads containing peer IP, queried certificate identity, and response status.
 
-- Documented the audit table contract for certificate creation, revocation, renewal, and OCSP history, including numeric certificate references, TrueLog receipts, and query indexes.
 
 - Added automatically incremented integer primary keys for certificates and CRLs, a required unique certificate fingerprint, and a numeric CRL foreign key to certificates.
 - Removed legacy database and plaintext-key migration handling from initialization.

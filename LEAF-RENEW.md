@@ -151,7 +151,7 @@ The CLI prompts for the single installation administrator password. This respons
 
 The successful issuance wire response additionally contains `download_token`. The CLI saves it as `~/.abpki/<new-fingerprint>` with mode 0600 and omits it from normal output. No-op and ADMIN transition responses have no token and do not create a credential file. Subsequent polling and downloads use the new fingerprint. The old token cannot download the replacement.
 
-Normal requests use `/api/renew`; ADMIN transitions use `/api/renew-admin`. The JSON request body contains only `fingerprint`; the socket credential field carries the token or administrator password. Revoked responses use HTTP/management status 409. Invalid credentials and malformed requests are rejected by the existing route error handler.
+Normal requests use `/api/renew`; ADMIN transitions use `/api/renew-admin`. The JSON request body contains only `fingerprint`; the socket credential field carries the token or administrator password. Revoked responses use HTTP/management status 409. Invalid credentials and malformed requests return a rejected-request error; see [operation results](ERROR.md).
 
 ## Duration preservation on renewal
 
@@ -161,7 +161,7 @@ new.not_before = issuance_time_utc
 new.not_after = new.not_before + original_duration
 ```
 
-The full original duration is preserved exactly in seconds: seven days remain seven days and 47 days remain 47 days. CN, kind, DNS/IP SANs, purpose, and access policies are preserved. The request accepts no duration or profile overrides. New keys, serials, fingerprints, and tokens are generated. The new interval must fit within its issuer; it is never silently shortened.
+The full original duration is preserved exactly in seconds: seven days remain seven days and 47 days remain 47 days. The original profile fields, including CN, SANs, usages, extension values and critical flags, are preserved. The request accepts no duration or profile overrides. New keys, serials, fingerprints, and tokens are generated. The new interval must fit within its issuer; it is never silently shortened.
 
 | Original certificate duration | Remaining lifetime at renewal | Replacement duration |
 | --- | --- | --- |
@@ -171,7 +171,7 @@ The full original duration is preserved exactly in seconds: seven days remain se
 
 The new duration starts at replacement issuance. Time spent waiting to download does not move its `notBefore` or `notAfter` timestamps. Changing the duration requires separate issuance; renewal has no duration parameter.
 
-Certificate PEM and encrypted-key PEM are written to WORM before metadata, predecessor linkage, and audit/DNS work commit in SQLite. No PEM is stored in SQLite. Failed external delivery remains queued after issuance. Failed issuance does not reset the old certificate's transition time. A lost response may follow committed issuance; repeating an old-fingerprint request can create another replacement and does not recover its previous token.
+The replacement certificate and encrypted key are stored on WORM. Failed DNS or audit delivery remains pending after issuance. Failed issuance does not reset the old certificate's transition time. A lost response may follow committed issuance; repeating an old-fingerprint request can create another replacement and does not recover its previous token.
 
 ## Retry and failure handling
 
@@ -202,4 +202,4 @@ flowchart TD
     Pending -->|Seven days after transition| Revoked[REVOKED old leaf]
 ```
 
-[Validity](VALIDATION.md) · [Intermediate CAs](INTERMEDIATE.md) · [Schema](DDL.md)
+[Validity](VALIDATION.md) · [Intermediate CAs](INTERMEDIATE.md) · [Stored certificate information](DDL.md)

@@ -14,7 +14,7 @@ The request body is a DER-encoded `OCSPRequest`. Its `CertID` identifies the cer
 
 ## POST protocol requirements
 
-The OCSP implementation MUST conform to the POST request and response rules in [RFC 6960, Appendix A.1 and A.2](https://www.rfc-editor.org/rfc/rfc6960.html#appendix-A), carried over HTTPS at `/ocsp/`.
+The endpoint uses the POST request and response format defined in [RFC 6960, Appendix A.1 and A.2](https://www.rfc-editor.org/rfc/rfc6960.html#appendix-A), carried over HTTPS at `/ocsp/`.
 
 - Requests MUST use `Content-Type: application/ocsp-request` and carry the binary DER-encoded `OCSPRequest` directly in the POST body.
 - OCSP responses MUST use `Content-Type: application/ocsp-response` and carry the binary DER-encoded `OCSPResponse` directly in the response body.
@@ -23,7 +23,7 @@ The OCSP implementation MUST conform to the POST request and response rules in [
 
 ## Leaf certificate extension
 
-Every issued or renewed server and client certificate contains the deployed OCSP URL in its non-critical Authority Information Access (AIA) extension.
+Every issued or renewed server and client certificate contains the deployed OCSP URL in its Authority Information Access (AIA) extension, which is non-critical by default.
 
 | Field | Value |
 | --- | --- |
@@ -67,6 +67,6 @@ The issuing Intermediate CA signs status responses with ECDSA and SHA-256. `Cert
 
 Responses contain current `producedAt` and `thisUpdate` timestamps and omit optional `nextUpdate`. HTTP responses disable caching. The fixed seven-day CRL lifetime does not apply to OCSP responses.
 
-[Operation results and audit error codes](ERROR.md)
+[Operation results and errors](ERROR.md)
 
 The local certificate handover state `SUPERSEDED` does not itself indicate revocation. An unrevoked certificate in that state continues to produce `GOOD`; no `SUPERSEDED` OCSP status is encoded. See [certificate lifecycle state](DDL.md#certificate-lifecycle-state).

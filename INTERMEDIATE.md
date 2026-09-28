@@ -58,7 +58,7 @@ flowchart TD
 
 ## CA profile extension example
 
-This CA-profile fragment describes name and policy extensions. Additional Intermediate CA creation through `create-ca` remains unavailable in version 1.0, and the current internal CA generator does not accept this configurable profile. The CA creation path supplies its subject, key, issuer, basicConstraints and Key Usage.
+This CA-profile fragment describes name and policy extensions. Additional Intermediate CA creation through `create-ca` remains unavailable in version 1.0, and installation-created CAs do not accept this configurable profile. The CA creation path supplies its subject, key, issuer, basicConstraints and Key Usage.
 
 ```json
 {
@@ -124,13 +124,13 @@ The profile author selects policy identifiers, mappings and counters. PKI encode
 
 ## Validity and renewal
 
-Intermediate CA default and maximum validity are calculated during installation as `min(398, TrueLog retention days - 7)`. A shorter duration can be requested at creation. `abpkid` renews these CAs internally during the final 48 days before expiration. Server and client certificates default to 47 days and cannot outlive their issuing Intermediate CA.
+Intermediate CA default and maximum validity are calculated during installation as `min(398, TrueLog retention days - 7)`. `abpkid` renews these CAs internally during the final 48 days before expiration. Server and client certificates default to 47 days and cannot outlive their issuing Intermediate CA.
 
 [Validity and renewal rules](VALIDATION.md)
 
 ## Issuance and management
 
-The Intermediate CA identifies the issuing domain. A server certificate's mandatory `urn:autobricks:purpose:<purpose>` URI SAN identifies the service purpose. CA names and purpose tokens are separate fields; `database.<baseDomain>` is a default CA name, not a substitute for a purpose such as `mariadb` or `postgresql`.
+The Intermediate CA identifies the issuing domain. A `urn:autobricks:purpose:<purpose>` URI SAN can carry a service-purpose claim for the consuming application. CA names and purpose tokens are separate fields; `database.<baseDomain>` is a default CA name, not a substitute for a purpose such as `mariadb` or `postgresql`.
 
 `abpki-cli list-ca` lists issuing Intermediate CAs. Additional Intermediate CA creation through `abpki-cli create-ca` is unavailable in 1.0 and returns `Not implemented`; the management endpoint returns `501 Not Implemented`. This operation is reserved for version 1.1. The initial installation creates the default hierarchy without requiring six separate client-side `create-ca` operations.
 
@@ -160,9 +160,9 @@ Automatic renewal follows the same server-managed process without step 2 when 48
 
 ## Intermediate CA renewal handover
 
-At 48 days before expiry, or following an ADMIN transition, abpkid processes the SUPERSEDED CA and creates a new VALID CA. The replacement preserves subject, CN, signing key, and the original validity duration in seconds. SQLite records the predecessor; linked generations share CRL numbering and revocation history.
+At 48 days before expiry, or following an ADMIN transition, abpkid processes the SUPERSEDED CA and creates a new VALID CA. The replacement preserves subject, CN, signing key, and the original validity duration in seconds. Linked generations share CRL numbering and revocation history.
 
-After CA replacement, all non-revoked leaf certificates linked to the old generation through `intermediate_leaf` become SUPERSEDED. Their first transition timestamps are retained. Leaf holders poll `renew` with their certificate tokens to obtain new VALID leaves under the new VALID CA. The PKI service replaces its own TLS leaf internally when its issuer changes.
+After CA replacement, all non-revoked leaf certificates issued by the old generation become SUPERSEDED. Their first transition timestamps are retained. Leaf holders poll `renew` with their certificate tokens to obtain new VALID leaves under the new VALID CA. The PKI service replaces its own TLS leaf internally when its issuer changes.
 
 The replacement has a new fingerprint even though the CN and signing key are preserved. Existing leaf records retain their original issuer relationship; new leaves reference the replacement CA. Renewal does not rewrite existing signed certificates or require replacement of the Root CA. Use the trust chain returned with each new leaf archive when deploying it.
 

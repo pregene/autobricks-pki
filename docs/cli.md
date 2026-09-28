@@ -22,7 +22,7 @@
 | `abpki-cli list [valid|revoked|renew|all]` | List leaf metadata by state; defaults to `valid`. |
 | `abpki-cli download {fingerprint} {target}` | Download the certificate, its private key, and its trust chain as `{target}.tar.gz`, identified by the certificate fingerprint. |
 
-Server and client certificate creation is available to any connected client. Server certificate creation requires exactly one `urn:autobricks:purpose:<purpose>` URI SAN; a missing, empty, unrecognized, or additional purpose is rejected. See the [purpose catalog](../CERTITFICATE.md#server-purpose-uri-san) for accepted values. Additional Intermediate CA creation returns `501 Not Implemented` in 1.0. Certificate revocation requires the administrator password. `abpkid` enforces these permissions when processing requests.
+Certificate creation is available to any connected client. URI SAN values are encoded within the documented input limits. The consuming server or client interprets purpose and access-policy claims. See the [field input reference](../LEAF-CREATE.md#certificate-field-support). Additional Intermediate CA creation returns `501 Not Implemented` in 1.0. Certificate revocation requires the administrator password. `abpkid` enforces these permissions when processing requests.
 
 ## Validity and renewal
 
@@ -88,4 +88,4 @@ Private-key downloads and normal leaf renewal require the certificate-specific a
 
 The `renew` list selector displays stored SUPERSEDED rows. Scheduled readiness, CA replacement, and explicit ADMIN transitions populate this state. `list-ca all` includes every Intermediate CA generation, regardless of state.
 
-Filtering occurs in SQLite before the 256-row page limit. Every page preserves the selected filter and the initial maximum-index boundary. Lists contain metadata only.
+Each page contains at most 256 entries matching the selected filter. Every page preserves the selected filter and the initial maximum-index boundary. Lists contain metadata only.

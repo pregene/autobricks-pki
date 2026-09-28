@@ -37,7 +37,7 @@ The base domain and leaf CN each have their own 24-character limit; the generate
 | Authorized leaf renewal | Preserve the CN and issue a new certificate with a new fingerprint |
 | Intermediate CA renewal | Preserve the CA subject and signing key; create a new certificate generation |
 
-The leaf CN check and certificate insertion occur in the same SQLite write transaction. Renewal uses the existing certificate's access token and the final seven-day renewal window. CN equality alone does not authorize renewal. Renewal generations remain distinguishable by certificate fingerprint, serial number, and validity period.
+New issuance reserves the leaf CN. Authorized renewal uses the existing certificate's access token after it becomes SUPERSEDED, including early ADMIN or issuer-replacement transitions. CN equality alone does not authorize renewal. Renewal generations remain distinguishable by certificate fingerprint, serial number, and validity period.
 
 ## Server DNS naming
 

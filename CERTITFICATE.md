@@ -269,11 +269,11 @@ The subject private key is not contained in its certificate. Algorithm availabil
 
 ## Server purpose URI SAN
 
-Server certificate issuance requires exactly one URI SAN with the format `urn:autobricks:purpose:<purpose>`. A missing, empty, unrecognized, or repeated purpose is an issuance validation error. Different purpose values also cannot be combined in one certificate. Other URI SAN entries may contain access policies. The purpose is included in the signed certificate, not only in external management records.
+A URI SAN with the format `urn:autobricks:purpose:<purpose>` carries a purpose claim in the signed certificate. Other URI SAN entries may carry access policies. PKI encodes supplied values within the input limits; it does not reject them based on purpose meaning or policy suitability. The consuming application determines which claims it accepts.
 
-Purpose values are lowercase and must match one of the following tokens.
+The following lowercase tokens describe Autobricks application purposes.
 
-| Purpose token | Required URI SAN value | Meaning |
+| Purpose token | URI SAN value | Meaning |
 | --- | --- | --- |
 | `mariadb` | `urn:autobricks:purpose:mariadb` | MariaDB database service |
 | `mysql` | `urn:autobricks:purpose:mysql` | MySQL database service |
@@ -401,7 +401,7 @@ A PKCS#10 CSR contains the subject, public key, attributes, and a request signat
 
 Requested extensions can be carried through the `extensionRequest` attribute (`1.2.840.113549.1.9.14`). A request is not an issued certificate: issuer identity, certificate serial, lifetime, and final extensions belong to the issuer's output. A request's `challengePassword` is a separate attribute, not a certificate field or the CLI's administrative `--pass` credential. [RFC 2985, Section 5.4 — PKCS#9](https://www.rfc-editor.org/rfc/rfc2985.html#section-5.4).
 
-For this service, open end-entity issuance must remain separate from privileged Intermediate CA creation. A requester-supplied CA flag or signing usage cannot substitute for the authorization required by `create-ca`. This reference does not define CSR import flags. [CLI functions](docs/cli.md).
+The service generates CA=false for leaf certificates. Additional Intermediate CA creation and CSR input are unavailable in version 1.0. [CLI functions](docs/cli.md).
 
 ## OCSP and CRL
 

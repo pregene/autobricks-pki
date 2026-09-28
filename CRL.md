@@ -54,7 +54,7 @@ Each replacement CRL receives its own issuance time and a new fixed seven-day va
 
 Revocation state and the pending CRL update are committed together before signing. CRL generation failure never reverses revocation. Pending publication is retried every 30 seconds, including after restart. Downloads only read the current published WORM file. Missing, expired, or pending CRLs produce an error without creating a CRL during the request.
 
-Each renewal lineage is published once per revocation or expiry refresh. All linked CA generations reference that publication, and pending CRL tasks for the lineage are completed with its metadata update. CRL retries are independent of DNS and TrueLog delivery.
+Each renewal lineage is published once per revocation or expiry refresh. All linked CA generations use that publication. CRL retries are independent of DNS and TrueLog delivery.
 
 Immediate publication updates the server's downloadable CRL. It does not push the replacement into validators that have already cached an earlier CRL.
 
@@ -85,7 +85,7 @@ CRL URLs embedded in existing leaf certificates continue to identify their appli
 
 [Certificate fields](CERTITFICATE.md) · [Intermediate CAs](INTERMEDIATE.md) · [Validity and renewal](VALIDATION.md)
 
-Intermediate renewal retains its CA key and subject. CN lookup selects the newest issuer certificate; fingerprint lookup retains the specified generation. Generations are connected through `previous_certificate_idx`. Publication includes revoked leaves from the entire linked lineage and advances one shared number sequence. Every generation points to the latest signed WORM CRL, so old fingerprint URLs and the CN URL retain revocation continuity. An unrelated certificate with the same CN is not included. Subject and public key equality are checked before sharing a CRL across generations.
+Intermediate renewal retains its CA key and subject. CN lookup selects the newest issuer certificate; fingerprint lookup retains the specified generation. Publication includes revoked leaves from the entire linked lineage and advances one shared number sequence. Every generation points to the latest signed WORM CRL, so old fingerprint URLs and the CN URL retain revocation continuity. An unrelated certificate with the same CN is not included. Subject and public key equality are checked before sharing a CRL across generations.
 
 ## CA handover revocation scope
 

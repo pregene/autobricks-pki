@@ -74,16 +74,9 @@ The service database path is `/var/lib/autobricks-pki/abpki.sqlite`, configured 
 
 The reference service configuration sets the absolute database path above. If `ABPKI_DATABASE` is omitted, the executable uses `abpki.sqlite` in its working directory.
 
-The operational database and all of its working files stay on mutable storage outside WORM. The implementation uses SQLite `DELETE` journal mode, so transaction working data uses the rollback journal rather than normal WAL/SHM files. SQLite manages journal recovery; service restarts reuse the existing database.
+The operational database and its temporary rollback journal stay on mutable storage outside WORM. Service restarts reuse the existing database.
 
-| Database table | Contents |
-| --- | --- |
-| `settings` | Salted administrator password hash, private-key encryption password, base domain, installation retention/CA validity policy, and current service TLS certificate identifier |
-| `certificates` | Certificate and encrypted-key WORM paths; identifiers; validity; revocation state; issuance profiles; access-token hashes |
-| `crls` | Signed CRL WORM path, update deadline, and CRL number for issuer generations |
-| `outbox` | CRL publication, audit, and DNS delivery records with completion state |
-
-Certificate, private-key, and CRL PEM contents reside only on WORM. SQLite stores paths and metadata, with the encryption password in settings. TLS loads its certificate and encrypted key from WORM. The database file is created with mode `0600`; an existing file with group or other access is rejected. The package provisions the mutable parent directory as mode `0700`; the daemon does not repair its permissions.
+SQLite retains certificate identities and lifecycle state, issuer relationships, encrypted-artifact paths, protected settings and pending delivery. Certificate, private-key and CRL PEM contents reside on WORM. See [stored certificate information](DDL.md).
 
 ## WORM artifacts
 
