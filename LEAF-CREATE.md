@@ -82,10 +82,10 @@ sequenceDiagram
     participant DNS as Autobricks DNS
     Client->>Local: create(profile, issuer) through Unix socket
     Local->>PKI: create using installed TLS configuration
-    PKI->>DB: Begin; check CN and DNS uniqueness
+    PKI->>DB: Begin#59; check CN and DNS uniqueness
     PKI->>PKI: Validate, generate key, sign certificate
-    PKI->>WORM: Write certificate and encrypted key; synchronize
-    PKI->>DB: Store metadata, paths, token hash, CA-leaf relation, outbox; commit
+    PKI->>WORM: Write certificate and encrypted key#59; synchronize
+    PKI->>DB: Store metadata, paths, token hash, CA-leaf relation, outbox#59; commit
     PKI->>Log: Submit CREATE event with result 200
     opt Server-capable certificate
         PKI->>DNS: Register A/AAAA records

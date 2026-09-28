@@ -27,3 +27,4 @@
 | 23 | 2026-09-28 | 1.0.111 | ADMIN leaf renew marks VALID as SUPERSEDED without issuance; normal token-authorized renewal polls state and only issues for SUPERSEDED. | 1.0.114 | 2026-09-28 |
 | 24 | 2026-09-28 | 1.0.111 | SUPERSEDED lifecycle records automatic/admin transitions and retires leaves after seven days and Intermediate CAs after 48 days, independent of renewal/download completion. | 1.0.114 | 2026-09-28 |
 | 25 | 2026-09-28 | 1.0.117 | Generated-key profiles lacked extended field encoding; added DN/SAN/extensions, explicit critical flags, renewal preservation, and certificate read-back regression coverage. CSR input remains outside this implementation. | 1.0.126 | 2026-09-28 |
+| 26 | 2026-09-28 | 1.0.127 | Unescaped semicolons in the leaf creation sequence diagram caused a Mermaid parse error; escaped message punctuation and verified the original failure and corrected diagram with the Mermaid parser. | 1.0.127 (documentation) | 2026-09-28 |
