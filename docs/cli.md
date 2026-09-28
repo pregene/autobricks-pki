@@ -14,21 +14,21 @@
 | `abpki-cli revoke ... --pass` | Revoke a certificate; requires the administrator password. |
 | `abpki-cli chain ...` | Download the Intermediate CA and Root CA certificates as `trust-chain`. |
 | `abpki-cli root ...` | Download the Root CA certificate as `root.crt`. |
-| `abpki-cli renew ...` | Renew a leaf certificate during the final seven days before expiration. |
+| `abpki-cli renew <fingerprint> [--pass [PASSWORD]]` | Poll a leaf with its saved token; --pass marks a CA or leaf SUPERSEDED without issuance. |
 | `abpki-cli create ...` | Create a server or client certificate for its intended use. |
 | `abpki-cli check ...` | Query certificate status: `GOOD`, `REVOKED`, or `UNKNOWN`. |
 | `abpki-cli info <fingerprint>` | Display X.509 certificate information. |
-| `abpki-cli list-ca ...` | List issuing Intermediate CAs. |
-| `abpki-cli list ...` | List issued certificates. |
+| `abpki-cli list-ca [valid|revoked|renew|all]` | List Intermediate CA metadata by state; defaults to `valid`. |
+| `abpki-cli list [valid|revoked|renew|all]` | List leaf metadata by state; defaults to `valid`. |
 | `abpki-cli download {fingerprint} {target}` | Download the certificate, its private key, and its trust chain as `{target}.tar.gz`, identified by the certificate fingerprint. |
 
 Server and client certificate creation is available to any connected client. Server certificate creation requires exactly one `urn:autobricks:purpose:<purpose>` URI SAN; a missing, empty, unrecognized, or additional purpose is rejected. See the [purpose catalog](../CERTITFICATE.md#server-purpose-uri-san) for accepted values. Additional Intermediate CA creation returns `501 Not Implemented` in 1.0. Certificate revocation requires the administrator password. `abpkid` enforces these permissions when processing requests.
 
 ## Validity and renewal
 
-Leaf certificates default to 47 days; Intermediate CAs use the installation-derived `min(398, TrueLog retention days - 7)` default and maximum. Creation supports shorter CA validity and custom leaf validity within the issuer boundary. Leaf holders periodically check expiration and request renewal when no more than seven days remain and the certificate has not expired. `abpkid` handles Intermediate CA renewal internally.
+Leaf certificates default to 47 days; Intermediate CAs use the installation-derived `min(398, TrueLog retention days - 7)` default and maximum. Leaves enter SUPERSEDED when seven days remain or their issuer is replaced; CA renewal starts at 48 days. ADMIN `renew --pass` can mark a certificate SUPERSEDED earlier. Normal leaf `renew` returns a no-op for VALID or issues a new VALID certificate for SUPERSEDED, preserving its original duration. Old leaves retire after seven days and old CAs after 48 days, independently of renewal/download completion.
 
-[Validity and renewal rules](../VALIDATION.md)
+[Step-by-step leaf renewal and response examples](../LEAF-RENEW.md) · [Intermediate CA operator procedure](../INTERMEDIATE.md#operator-procedure) · [Validity and renewal rules](../VALIDATION.md)
 
 ## Certificate status
 
@@ -73,6 +73,19 @@ sequenceDiagram
     CLI->>File: Save as target.tar.gz
 ```
 
-Private-key downloads and leaf renewal require the certificate-specific access token returned by issuance. The CLI saves issuance tokens in caller-owned credential records and includes the selected token in the Unix socket request for these commands. The service has no application user accounts; `revoke` receives the single administrator password through the Unix socket credential field and verifies it on the server. Bare `--pass` prompts in the calling CLI; per-command credentials are not service environment variables.
+Private-key downloads and normal leaf renewal require the certificate-specific access token returned by issuance. The CLI saves issuance tokens in caller-owned credential records and includes the selected token in the Unix socket request for these commands. The service has no application user accounts; `revoke` and `renew --pass` receive the single administrator password through the Unix socket credential field which is verified on the server. Bare `--pass` prompts in the calling CLI; per-command credentials are not service environment variables.
 
 [Common Names, DNS naming, and uniqueness](../COMMON-NAME.md)
+
+## Certificate list filters
+
+| Leaf command | Intermediate CA command | Included state |
+| --- | --- | --- |
+| `abpki-cli list` or `abpki-cli list valid` | `abpki-cli list-ca` or `abpki-cli list-ca valid` | `VALID` |
+| `abpki-cli list revoked` | `abpki-cli list-ca revoked` | `REVOKED` |
+| `abpki-cli list renew` | `abpki-cli list-ca renew` | `SUPERSEDED`: renewal handover pending |
+| `abpki-cli list all` | `abpki-cli list-ca all` | All states |
+
+The `renew` list selector displays stored SUPERSEDED rows. Scheduled readiness, CA replacement, and explicit ADMIN transitions populate this state. `list-ca all` includes every Intermediate CA generation, regardless of state.
+
+Filtering occurs in SQLite before the 256-row page limit. Every page preserves the selected filter and the initial maximum-index boundary. Lists contain metadata only.

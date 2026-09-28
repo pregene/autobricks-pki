@@ -10,6 +10,8 @@ pub fn due(last_attempt: Option<i64>, timestamp: i64) -> bool {
 impl Service {
     /// Persist the attempt before renewal so restarts do not repeat an hourly run.
     pub fn run_hourly_renewal(&self, timestamp: i64) -> Result<bool> {
+        self.db.mark_due_leaves(timestamp)?;
+        self.retire_superseded(timestamp)?;
         let last = self
             .db
             .setting(LAST_ATTEMPT)?

@@ -5,7 +5,7 @@ use crate::{
         profile::{LeafKind, LeafProfile},
     },
     integration::dns,
-    server::service::{Create, Issued, Service, now, record},
+    server::service::{Create, Issued, Service, record},
     storage::database::Certificate,
 };
 use openssl::{
@@ -52,6 +52,9 @@ impl Service {
         issuer: &Certificate,
         profile: &LeafProfile,
     ) -> Result<Issued> {
+        if issuer.revoked_at.is_some() || self.db.is_superseded(&issuer.fingerprint)? {
+            return Err("issuer is not VALID".into());
+        }
         profile.validate(issuer.validity)?;
         let records = dns::records(profile)?;
         let cert = X509::from_pem(issuer.pem.as_bytes())?;
@@ -121,24 +124,5 @@ impl Service {
             tar.append_data(&mut h, name, data)?;
         }
         Ok(tar.into_inner()?.finish()?)
-    }
-    pub fn renew(&self, id: &str, token: &str) -> Result<Issued> {
-        let old = self.db.metadata(id)?;
-        self.authorize_download(&old, token)?;
-        if old.revoked_at.is_some() || !old.validity.renewable(now()) {
-            return Err("certificate is revoked or outside renewal window".into());
-        }
-        let mut profile: LeafProfile =
-            serde_json::from_str(old.profile.as_deref().ok_or("missing leaf profile")?)?;
-        let old_ca = self
-            .db
-            .metadata(old.issuer.as_deref().ok_or("missing issuer")?)?;
-        let issuer = self.db.issuer(&old_ca.cn)?;
-        profile.validity = old.validity.renewed(now(), issuer.validity)?;
-        let mut issued = self
-            .db
-            .transaction(|| self.create_inner(&issuer, &profile))?;
-        issued.integrations_pending = self.reconcile().is_err() || self.db.has_pending()?;
-        Ok(issued)
     }
 }

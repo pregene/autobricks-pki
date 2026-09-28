@@ -1752,3 +1752,968 @@ fn paginated_lists_bound_memory_preserve_order_and_exclude_new_rows() {
     assert!(ids.windows(2).all(|pair| pair[0] < pair[1]));
     assert!(f.service.db.certificate_page(false, -1, None).is_err());
 }
+
+#[test]
+fn leaf_list_filters_preserve_states_and_pagination() {
+    list_filter_regression(false);
+}
+
+#[test]
+fn intermediate_list_filters_preserve_states_and_pagination() {
+    list_filter_regression(true);
+}
+
+fn list_filter_regression(intermediate: bool) {
+    use autobricks_pki::storage::listing::{CertificatePage, ListFilter};
+    let f = Fixture::new();
+    let command = if intermediate { "list-ca" } else { "list" };
+    let existing = if intermediate { 6 } else { 1 };
+    let conn = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    conn.execute_batch("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<900)
+        INSERT INTO certificates(fingerprint,cn,kind,serial,not_before,not_after,certificate_path,private_key_path,valid)
+        SELECT printf('%064x',i),'state-'||i,'client',printf('%x',i),0,1,'absent.pem','absent.key.pem',
+        CASE i%3 WHEN 0 THEN 'VALID' WHEN 1 THEN 'REVOKED' ELSE 'SUPERSEDED' END FROM n;").unwrap();
+    if intermediate {
+        conn.execute(
+            "UPDATE certificates SET kind='intermediate' WHERE cn LIKE 'state-%'",
+            [],
+        )
+        .unwrap();
+    }
+    let request = |path: &str| {
+        autobricks_pki::server::routes::dispatch(
+            &f.service,
+            autobricks_pki::transport::request::Request {
+                method: "GET".into(),
+                path: path.into(),
+                headers: Default::default(),
+                body: vec![],
+            },
+        )
+    };
+    for (name, state, expected) in [
+        ("valid", Some("VALID"), 300 + existing),
+        ("revoked", Some("REVOKED"), 300),
+        ("renew", Some("SUPERSEDED"), 300),
+        ("all", None, 900 + existing),
+    ] {
+        assert_eq!(ListFilter::parse(name).unwrap().name(), name);
+        let mut count = 0;
+        let mut calls = 0;
+        autobricks_pki::client::listing::stream_pages(
+            |after, through| {
+                calls += 1;
+                let mut path = format!("/api/{command}?after={after}&status={name}");
+                if let Some(upper) = through {
+                    path.push_str(&format!("&through={upper}"));
+                }
+                let response = request(&path);
+                assert_eq!(response.status, "200 OK");
+                let page: CertificatePage = serde_json::from_slice(&response.body).unwrap();
+                assert!(
+                    page.entries
+                        .iter()
+                        .all(|entry| state.is_none_or(|state| entry.valid == state))
+                );
+                count += page.entries.len();
+                Ok(page)
+            },
+            &mut Vec::new(),
+        )
+        .unwrap();
+        assert_eq!(count, expected);
+        assert!(calls > 1);
+    }
+    let default: CertificatePage =
+        serde_json::from_slice(&request(&format!("/api/{command}?after=0")).body).unwrap();
+    let explicit: CertificatePage =
+        serde_json::from_slice(&request(&format!("/api/{command}?after=0&status=valid")).body)
+            .unwrap();
+    assert_eq!(
+        default.entries.iter().map(|c| c.idx).collect::<Vec<_>>(),
+        explicit.entries.iter().map(|c| c.idx).collect::<Vec<_>>()
+    );
+    for query in ["status=invalid", "status=valid&status=all"] {
+        assert_eq!(
+            request(&format!("/api/{command}?after=0&{query}")).status,
+            "400 Bad Request"
+        );
+    }
+    assert!(ListFilter::parse("invalid").is_err());
+    let (kind, index) = if intermediate {
+        ("kind='intermediate'", "certificates_intermediate_state_idx")
+    } else {
+        (
+            "kind IN ('server','client','server-and-client')",
+            "certificates_leaf_state_idx",
+        )
+    };
+    let plan: Vec<String> = conn.prepare(&format!("EXPLAIN QUERY PLAN SELECT idx FROM certificates WHERE {kind} AND valid='SUPERSEDED' AND idx>0 AND idx<=10000 ORDER BY idx LIMIT 257")).unwrap().query_map([], |r| r.get(3)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+    assert!(plan.iter().any(|line| line.contains(index)));
+    conn.execute("DELETE FROM certificates WHERE cn LIKE 'state-%' AND idx NOT IN (SELECT MIN(idx) FROM certificates WHERE cn LIKE 'state-%' GROUP BY valid)", []).unwrap();
+    let legacy = request(&format!("/api/{command}"));
+    assert_eq!(legacy.status, "200 OK");
+    let entries: Vec<autobricks_pki::storage::listing::CertificateListEntry> =
+        serde_json::from_slice(&legacy.body).unwrap();
+    assert_eq!(entries.len(), existing + 1);
+    assert!(entries.iter().all(|entry| entry.valid == "VALID"));
+}
+
+#[test]
+fn intermediate_renewal_at_48_days_preserves_leaf_window() {
+    use autobricks_pki::certificate::validity::DAY;
+    let f = Fixture::new();
+    let ca = f.seed_intermediate("early-renewal", 48);
+    let boundary = ca.validity.not_after - 48 * DAY;
+    assert!(
+        !f.service
+            .db
+            .due_intermediates(boundary - 1)
+            .unwrap()
+            .iter()
+            .any(|c| c.fingerprint == ca.fingerprint)
+    );
+    assert!(
+        f.service
+            .db
+            .due_intermediates(boundary)
+            .unwrap()
+            .iter()
+            .any(|c| c.fingerprint == ca.fingerprint)
+    );
+    assert!(
+        !f.service
+            .db
+            .due_intermediates(ca.validity.not_after)
+            .unwrap()
+            .iter()
+            .any(|c| c.fingerprint == ca.fingerprint)
+    );
+    let tls_before = f.service.db.setting("tls_certificate").unwrap();
+    let leaf = f.issue(47);
+    assert!(
+        f.service
+            .renew(&leaf.certificate.fingerprint, &leaf.download_token)
+            .is_err()
+    );
+    f.service.maintain().unwrap();
+    let replacement = f.service.db.issuer(&ca.cn).unwrap();
+    assert_ne!(replacement.fingerprint, ca.fingerprint);
+    assert_eq!(
+        replacement.validity.not_after - replacement.validity.not_before,
+        48 * DAY
+    );
+    assert!(Validity::new(now(), 47, Some(replacement.validity)).is_ok());
+    assert_eq!(f.service.db.setting("tls_certificate").unwrap(), tls_before);
+    assert!(
+        !f.service
+            .db
+            .due_intermediates(now())
+            .unwrap()
+            .iter()
+            .any(|c| c.fingerprint == ca.fingerprint)
+    );
+}
+
+#[test]
+fn manual_intermediate_renewal_requires_admin_and_preserves_lineage() {
+    let f = Fixture::new();
+    let ca = f.service.db.issuer("www.autobricks.internal").unwrap();
+    let leaf = f.issue(47);
+    let count = f.service.db.all().unwrap().len();
+    for credential in [b"".as_slice(), b"wrong", leaf.download_token.as_bytes()] {
+        assert!(
+            f.service
+                .renew_intermediate(&ca.fingerprint, credential)
+                .is_err()
+        );
+    }
+    assert!(
+        f.service
+            .renew_intermediate(&leaf.certificate.fingerprint, ADMIN)
+            .is_err()
+    );
+    let response = f
+        .service
+        .renew_intermediate(&ca.fingerprint, ADMIN)
+        .unwrap();
+    assert_eq!(response.status, "SUPERSEDED");
+    assert!(!response.renewed);
+    assert_eq!(response.fingerprint, ca.fingerprint);
+    assert_eq!(
+        response.revoke_at.unwrap() - response.superseded_at.unwrap(),
+        48 * 86_400
+    );
+    assert_eq!(f.service.db.all().unwrap().len(), count);
+    let retry = f
+        .service
+        .renew_intermediate(&ca.fingerprint, ADMIN)
+        .unwrap();
+    assert_eq!(retry.superseded_at, response.superseded_at);
+    f.service.maintain().unwrap();
+    let replacement = f.service.db.issuer(&ca.cn).unwrap();
+    assert_ne!(replacement.fingerprint, ca.fingerprint);
+    assert_eq!(
+        replacement.validity.not_after - replacement.validity.not_before,
+        ca.validity.not_after - ca.validity.not_before
+    );
+    let old = X509::from_pem(ca.pem.as_bytes()).unwrap();
+    let new = X509::from_pem(replacement.pem.as_bytes()).unwrap();
+    assert_eq!(
+        old.subject_name().to_der().unwrap(),
+        new.subject_name().to_der().unwrap()
+    );
+    assert!(
+        old.public_key()
+            .unwrap()
+            .public_eq(&new.public_key().unwrap())
+    );
+    assert_eq!(
+        f.service.crl(&ca.fingerprint).unwrap(),
+        f.service.crl(&replacement.fingerprint).unwrap()
+    );
+    assert!(
+        f.service
+            .renew(&leaf.certificate.fingerprint, &leaf.download_token)
+            .is_ok()
+    );
+}
+
+#[test]
+fn cli_ca_renewal_forwards_admin_without_leaf_token() {
+    cli_renewal_response(0);
+}
+
+#[test]
+fn cli_admin_leaf_renewal_marks_pending_without_token() {
+    cli_renewal_response(1);
+}
+
+#[test]
+fn cli_renewal_polling_saves_token_only_when_renewed() {
+    cli_renewal_response(2);
+    cli_renewal_response(3);
+}
+
+fn cli_renewal_response(mode: u8) {
+    use autobricks_pki::transport::management::{
+        MAX_RESPONSE, Message, Reply, read_frame, write_frame,
+    };
+    use std::process::{Command, Stdio};
+    let directory = tempfile::tempdir().unwrap();
+    let socket = directory.path().join("client.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let fingerprint = "a".repeat(64);
+    let token = "b".repeat(64);
+    let replacement = "c".repeat(64);
+    let mut command = Command::new(env!("CARGO_BIN_EXE_abpki-cli"));
+    command.args(["renew", &fingerprint]);
+    if mode < 2 {
+        command.args(["--pass", std::str::from_utf8(ADMIN).unwrap()]);
+    } else {
+        use std::os::unix::fs::PermissionsExt;
+        let credentials = directory.path().join(".abpki");
+        std::fs::create_dir(&credentials).unwrap();
+        std::fs::set_permissions(&credentials, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let saved = credentials.join(&fingerprint);
+        std::fs::write(&saved, &token).unwrap();
+        std::fs::set_permissions(saved, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let mut child = command
+        .env("ABPKI_SOCKET", &socket)
+        .env("HOME", directory.path())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let mut stream = loop {
+        match listener.accept() {
+            Ok((stream, _)) => break stream,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::WouldBlock
+                    && std::time::Instant::now() < deadline =>
+            {
+                std::thread::sleep(Duration::from_millis(10))
+            }
+            Err(error) => {
+                let _ = child.kill();
+                panic!("CLI did not connect: {error}");
+            }
+        }
+    };
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    let request: Message = read_frame(&mut stream, 1_048_576).unwrap();
+    assert_eq!(
+        request.path,
+        if mode < 2 {
+            "/api/renew-admin"
+        } else {
+            "/api/renew"
+        }
+    );
+    assert_eq!(
+        request.credential.as_deref(),
+        Some(if mode < 2 {
+            std::str::from_utf8(ADMIN).unwrap()
+        } else {
+            token.as_str()
+        })
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&request.body).unwrap()["fingerprint"],
+        fingerprint
+    );
+    let response = match mode {
+        2 => {
+            serde_json::json!({"result":200,"renewed":true,"status":"VALID","previous_fingerprint":fingerprint,"fingerprint":replacement,"download_token":token})
+        }
+        3 => {
+            serde_json::json!({"result":200,"renewed":false,"status":"VALID","fingerprint":fingerprint})
+        }
+        _ => {
+            serde_json::json!({"result":200,"renewed":false,"status":"SUPERSEDED","fingerprint":fingerprint,"superseded_at":1790553600,"revoke_at":if mode==0 {1790553600i64+48*86400} else {1791158400}})
+        }
+    };
+    write_frame(
+        &mut stream,
+        &Reply {
+            status: "200 OK".into(),
+            content_type: "application/json".into(),
+            body: serde_json::to_vec(&response).unwrap(),
+        },
+        MAX_RESPONSE,
+    )
+    .unwrap();
+    drop(stream);
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    if mode < 2 {
+        assert!(!directory.path().join(".abpki").exists());
+    } else if mode == 2 {
+        use std::os::unix::fs::PermissionsExt;
+        let saved = directory.path().join(".abpki").join(&replacement);
+        assert_eq!(std::fs::read_to_string(&saved).unwrap(), token);
+        assert_eq!(
+            std::fs::metadata(saved).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    } else {
+        assert!(!directory.path().join(".abpki").join(&replacement).exists());
+    }
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(&token));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(std::str::from_utf8(ADMIN).unwrap()));
+}
+
+#[test]
+fn early_leaf_renewal_requires_admin_and_preserves_policy() {
+    use autobricks_pki::certificate::validity::DAY;
+    let f = Fixture::new();
+    let issued = f.issue(47);
+    let old = &issued.certificate;
+    let count = f.service.db.all().unwrap().len();
+    let ordinary = f
+        .service
+        .poll_renewal(&old.fingerprint, &issued.download_token)
+        .unwrap();
+    assert_eq!(ordinary.result, 200);
+    assert!(!ordinary.renewed);
+    assert_eq!(ordinary.status, "VALID");
+    for credential in [b"".as_slice(), b"wrong", issued.download_token.as_bytes()] {
+        assert!(
+            f.service
+                .renew_leaf_as_admin(&old.fingerprint, credential)
+                .is_err()
+        );
+    }
+    let pending = f
+        .service
+        .renew_leaf_as_admin(&old.fingerprint, ADMIN)
+        .unwrap();
+    assert_eq!(pending.status, "SUPERSEDED");
+    assert!(!pending.renewed);
+    assert_eq!(
+        pending.revoke_at.unwrap() - pending.superseded_at.unwrap(),
+        7 * DAY
+    );
+    assert_eq!(f.service.db.all().unwrap().len(), count);
+    let retry = f
+        .service
+        .renew_leaf_as_admin(&old.fingerprint, ADMIN)
+        .unwrap();
+    assert_eq!(pending.superseded_at, retry.superseded_at);
+    let renewed = f
+        .service
+        .poll_renewal(&old.fingerprint, &issued.download_token)
+        .unwrap();
+    assert!(renewed.renewed);
+    assert_eq!(renewed.status, "VALID");
+    assert_eq!(
+        renewed.previous_fingerprint.as_deref(),
+        Some(old.fingerprint.as_str())
+    );
+    let replacement = f.service.db.get(&renewed.fingerprint).unwrap();
+    assert_eq!(
+        replacement.validity.not_after - replacement.validity.not_before,
+        47 * DAY
+    );
+    assert_eq!(replacement.cn, old.cn);
+    assert!(
+        f.service
+            .download(
+                &renewed.fingerprint,
+                renewed.download_token.as_deref().unwrap()
+            )
+            .is_ok()
+    );
+    assert!(
+        f.service
+            .download(&renewed.fingerprint, &issued.download_token)
+            .is_err()
+    );
+    assert_eq!(
+        f.service.db.revocation_status(&old.fingerprint).unwrap(),
+        Some(None)
+    );
+    assert!(
+        !f.service
+            .poll_renewal(
+                &renewed.fingerprint,
+                renewed.download_token.as_deref().unwrap()
+            )
+            .unwrap()
+            .renewed
+    );
+    f.service.revoke(&renewed.fingerprint, ADMIN).unwrap();
+    let revoked = f
+        .service
+        .poll_renewal(
+            &renewed.fingerprint,
+            renewed.download_token.as_deref().unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        (revoked.result, revoked.renewed, revoked.status.as_str()),
+        (409, false, "REVOKED")
+    );
+    assert_eq!(
+        f.service
+            .renew_leaf_as_admin(&renewed.fingerprint, ADMIN)
+            .unwrap()
+            .result,
+        409
+    );
+    assert!(
+        f.service
+            .renew_leaf_as_admin(&f.service.db.root_id().unwrap(), ADMIN)
+            .is_err()
+    );
+}
+
+#[test]
+fn superseded_deadline_revokes_at_seven_days_and_survives_restart() {
+    use autobricks_pki::certificate::validity::DAY;
+    let mut f = Fixture::new();
+    f.service.background_delivery = true;
+    let issued = f.issue(47);
+    let future = f.issue(47);
+    let unchanged = f.issue(47);
+    let timestamp = now();
+    let conn = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    conn.execute(
+        "UPDATE certificates SET valid='SUPERSEDED',superseded_at=? WHERE fingerprint=?",
+        rusqlite::params![timestamp - 7 * DAY, issued.certificate.fingerprint],
+    )
+    .unwrap();
+    conn.execute(
+        "UPDATE certificates SET valid='SUPERSEDED',superseded_at=? WHERE fingerprint=?",
+        rusqlite::params![timestamp - 7 * DAY + 1, future.certificate.fingerprint],
+    )
+    .unwrap();
+    assert_eq!(f.service.retire_superseded(timestamp - 1).unwrap(), 0);
+    assert_eq!(f.service.retire_superseded(timestamp).unwrap(), 1);
+    assert_eq!(
+        f.service
+            .db
+            .revocation_status(&issued.certificate.fingerprint)
+            .unwrap(),
+        Some(Some(timestamp))
+    );
+    assert_eq!(
+        f.service
+            .db
+            .revocation_status(&future.certificate.fingerprint)
+            .unwrap(),
+        Some(None)
+    );
+    assert_eq!(
+        f.service
+            .db
+            .revocation_status(&unchanged.certificate.fingerprint)
+            .unwrap(),
+        Some(None)
+    );
+    assert_eq!(f.service.retire_superseded(timestamp).unwrap(), 0);
+    let events = || {
+        conn.query_row("SELECT COUNT(*) FROM outbox WHERE kind='audit' AND json_extract(payload,'$.fingerprint')=? AND json_extract(payload,'$.event')='certificate-revoked'", [&issued.certificate.fingerprint], |r| r.get::<_,i64>(0)).unwrap()
+    };
+    assert_eq!(events(), 1);
+    f.service.db = Database::open(
+        &f._temp.path().join("pki.sqlite"),
+        &f._temp.path().join("worm"),
+    )
+    .unwrap();
+    assert_eq!(f.service.retire_superseded(timestamp + 1).unwrap(), 1);
+    assert_eq!(events(), 1);
+    assert_eq!(
+        conn.query_row(
+            "SELECT superseded_at FROM certificates WHERE fingerprint=?",
+            [&issued.certificate.fingerprint],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        timestamp - 7 * DAY
+    );
+    let crl = X509Crl::from_pem(
+        &f.service
+            .crl(issued.certificate.issuer.as_deref().unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(crl.get_revoked().unwrap().len(), 2);
+}
+
+#[test]
+fn superseded_retirement_commits_despite_crl_and_audit_failure() {
+    use autobricks_pki::certificate::validity::DAY;
+    let mut f = Fixture::new();
+    f.service.background_delivery = true;
+    let issued = f.issue(47);
+    let ca = f
+        .service
+        .db
+        .get(issued.certificate.issuer.as_deref().unwrap())
+        .unwrap();
+    let root = f.service.root().unwrap();
+    let timestamp = now();
+    let conn = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    for id in [&ca.fingerprint, &issued.certificate.fingerprint] {
+        conn.execute(
+            "UPDATE certificates SET valid='SUPERSEDED',superseded_at=? WHERE fingerprint=?",
+            rusqlite::params![
+                timestamp
+                    - if id == &ca.fingerprint {
+                        48 * DAY
+                    } else {
+                        7 * DAY
+                    },
+                id
+            ],
+        )
+        .unwrap();
+    }
+    conn.execute_batch("CREATE TRIGGER block_retirement_crl BEFORE INSERT ON crls BEGIN SELECT RAISE(ABORT,'CRL unavailable'); END;").unwrap();
+    f.service.truelog.executable = f._temp.path().join("missing-truelog");
+    assert_eq!(f.service.retire_superseded(timestamp).unwrap(), 2);
+    for id in [&ca.fingerprint, &issued.certificate.fingerprint] {
+        assert_eq!(
+            f.service.db.revocation_status(id).unwrap(),
+            Some(Some(timestamp))
+        );
+    }
+    assert!(
+        f.service
+            .db
+            .pending()
+            .unwrap()
+            .iter()
+            .any(|(_, kind, _)| kind == "crl")
+    );
+    let leaf = X509::from_pem(issued.certificate.pem.as_bytes()).unwrap();
+    let issuer = X509::from_pem(ca.pem.as_bytes()).unwrap();
+    let id = OcspCertId::from_cert(MessageDigest::sha1(), &leaf, &issuer).unwrap();
+    let response =
+        ocsp::respond_database(&request(&leaf, &issuer), &f.service.db, timestamp).unwrap();
+    assert_eq!(
+        OcspResponse::from_der(&response)
+            .unwrap()
+            .basic()
+            .unwrap()
+            .find_status(&id)
+            .unwrap()
+            .status,
+        OcspCertStatus::REVOKED
+    );
+    conn.execute_batch("DROP TRIGGER block_retirement_crl;")
+        .unwrap();
+    assert_eq!(f.service.retire_superseded(timestamp + 1).unwrap(), 0);
+    assert!(
+        !f.service
+            .db
+            .pending()
+            .unwrap()
+            .iter()
+            .any(|(_, kind, _)| kind == "crl")
+    );
+    let root_crl = X509Crl::from_pem(&f.service.crl(&root.fingerprint).unwrap()).unwrap();
+    assert!(
+        root_crl
+            .verify(
+                &X509::from_pem(root.pem.as_bytes())
+                    .unwrap()
+                    .public_key()
+                    .unwrap()
+            )
+            .unwrap()
+    );
+    assert_eq!(root_crl.get_revoked().unwrap().len(), 1);
+    let ca_serial = X509::from_pem(ca.pem.as_bytes())
+        .unwrap()
+        .serial_number()
+        .to_bn()
+        .unwrap()
+        .to_vec();
+    assert_eq!(
+        root_crl.get_revoked().unwrap()[0]
+            .serial_number()
+            .to_bn()
+            .unwrap()
+            .to_vec(),
+        ca_serial
+    );
+    assert_eq!(
+        X509Crl::from_pem(&f.service.crl(&ca.fingerprint).unwrap())
+            .unwrap()
+            .get_revoked()
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn superseded_retirement_batches_and_scheduler_ignore_hourly_gate() {
+    use autobricks_pki::certificate::validity::DAY;
+    let f = Fixture::new();
+    let timestamp = now();
+    let conn = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    let issuer = f
+        .service
+        .db
+        .issuer("www.autobricks.internal")
+        .unwrap()
+        .fingerprint;
+    conn.execute("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<600) INSERT INTO certificates(fingerprint,cn,kind,issuer,serial,not_before,not_after,certificate_path,private_key_path,valid,superseded_at) SELECT printf('%064x',i),'retire-'||i,'client',?1,printf('%X',i),0,1,'absent.pem','absent.key.pem','SUPERSEDED',?2 FROM n", rusqlite::params![issuer,timestamp-7*DAY]).unwrap();
+    conn.execute("INSERT INTO settings(name,value) VALUES('renewal_scheduler_last_attempt',?) ON CONFLICT(name) DO UPDATE SET value=excluded.value", [serde_json::to_vec(&timestamp).unwrap()]).unwrap();
+    assert!(!f.service.run_hourly_renewal(timestamp).unwrap());
+    assert_eq!(
+        conn.query_row(
+            "SELECT COUNT(*) FROM certificates WHERE cn LIKE 'retire-%' AND valid='REVOKED'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        600
+    );
+    assert_eq!(f.service.retire_superseded(timestamp + 1).unwrap(), 0);
+    let plan:Vec<String> = conn.prepare("EXPLAIN QUERY PLAN SELECT idx FROM certificates WHERE valid='SUPERSEDED' AND revoked_at IS NULL AND superseded_at<=0 ORDER BY superseded_at,idx LIMIT 256").unwrap().query_map([],|r|r.get(3)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+    assert!(
+        plan.iter()
+            .any(|line| line.contains("certificates_superseded_deadline"))
+    );
+    conn.execute("UPDATE certificates SET valid='SUPERSEDED',revoked_at=NULL,superseded_at=NULL WHERE cn='retire-1'", []).unwrap();
+    assert!(f.service.retire_superseded(timestamp + 2).is_err());
+    assert_eq!(
+        conn.query_row(
+            "SELECT superseded_at FROM certificates WHERE cn='retire-1'",
+            [],
+            |r| r.get::<_, Option<i64>>(0)
+        )
+        .unwrap(),
+        None
+    );
+}
+
+#[test]
+fn renewal_records_superseded_state_and_keeps_original_deadline() {
+    let f = Fixture::new();
+    let issued = f.issue(7);
+    let conn = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    let state = |id: &str| {
+        conn.query_row(
+            "SELECT valid,superseded_at,revoked_at FROM certificates WHERE fingerprint=?",
+            [id],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<i64>>(1)?,
+                    r.get::<_, Option<i64>>(2)?,
+                ))
+            },
+        )
+        .unwrap()
+    };
+    assert!(
+        f.service
+            .renew(&issued.certificate.fingerprint, "wrong")
+            .is_err()
+    );
+    assert_eq!(
+        state(&issued.certificate.fingerprint),
+        ("VALID".into(), None, None)
+    );
+    let renewed = f
+        .service
+        .renew(&issued.certificate.fingerprint, &issued.download_token)
+        .unwrap();
+    let old = state(&issued.certificate.fingerprint);
+    assert_eq!(old.0, "SUPERSEDED");
+    assert!(old.1.is_some());
+    assert_eq!(old.2, None);
+    assert_eq!(
+        state(&renewed.certificate.fingerprint),
+        ("VALID".into(), None, None)
+    );
+    let previous: i64 = conn
+        .query_row(
+            "SELECT previous_certificate_idx FROM certificates WHERE fingerprint=?",
+            [&renewed.certificate.fingerprint],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        previous,
+        conn.query_row(
+            "SELECT idx FROM certificates WHERE fingerprint=?",
+            [&issued.certificate.fingerprint],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap()
+    );
+    let ca = issued.certificate.issuer.as_deref().unwrap();
+    let revoked = f.issue(7);
+    f.service
+        .revoke(&revoked.certificate.fingerprint, ADMIN)
+        .unwrap();
+    let revoked_before = state(&revoked.certificate.fingerprint);
+    f.service.renew_intermediate(ca, ADMIN).unwrap();
+    f.service.maintain().unwrap();
+    let replacement_ca = f
+        .service
+        .db
+        .issuer(&f.service.db.metadata(ca).unwrap().cn)
+        .unwrap();
+    assert_eq!(state(ca).0, "SUPERSEDED");
+    assert_eq!(state(&issued.certificate.fingerprint), old);
+    assert_eq!(state(&renewed.certificate.fingerprint).0, "SUPERSEDED");
+    assert_eq!(
+        state(&replacement_ca.fingerprint),
+        ("VALID".into(), None, None)
+    );
+    assert_eq!(state(&revoked.certificate.fingerprint), revoked_before);
+    let timeout = state(ca).1.unwrap() + 48 * 86_400;
+    f.service.retire_superseded(timeout).unwrap();
+    assert_eq!(state(ca).0, "REVOKED");
+    assert_eq!(state(&renewed.certificate.fingerprint).0, "REVOKED");
+    assert_eq!(state(&replacement_ca.fingerprint).0, "VALID");
+}
+
+#[test]
+fn ca_handover_replaces_service_tls_before_forced_retirement() {
+    let f = Fixture::new();
+    let tls = String::from_utf8(f.service.db.setting("tls_certificate").unwrap().unwrap()).unwrap();
+    let old = f.service.db.metadata(&tls).unwrap();
+    assert!(!old.validity.renewable(now()));
+    let ca = f
+        .service
+        .renew_intermediate(old.issuer.as_deref().unwrap(), ADMIN)
+        .unwrap();
+    f.service.maintain().unwrap();
+    let replacement_id =
+        String::from_utf8(f.service.db.setting("tls_certificate").unwrap().unwrap()).unwrap();
+    assert_ne!(replacement_id, tls);
+    let replacement = f.service.db.metadata(&replacement_id).unwrap();
+    assert_eq!(
+        replacement.issuer.as_deref(),
+        Some(
+            f.service
+                .db
+                .issuer(&f.service.db.metadata(&ca.fingerprint).unwrap().cn)
+                .unwrap()
+                .fingerprint
+                .as_str()
+        )
+    );
+    assert_eq!(
+        replacement.validity.not_after - replacement.validity.not_before,
+        old.validity.not_after - old.validity.not_before
+    );
+    f.service.tls_config().unwrap();
+    let conn = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    let transition: i64 = conn
+        .query_row(
+            "SELECT superseded_at FROM certificates WHERE fingerprint=?",
+            [&tls],
+            |r| r.get(0),
+        )
+        .unwrap();
+    f.service
+        .retire_superseded(transition + 7 * 86_400)
+        .unwrap();
+    assert!(
+        f.service
+            .db
+            .revocation_status(&tls)
+            .unwrap()
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(
+        f.service.db.revocation_status(&replacement_id).unwrap(),
+        Some(None)
+    );
+    f.service.tls_config().unwrap();
+}
+
+#[test]
+fn renewal_polling_contract_preserves_original_duration_and_retirement() {
+    use autobricks_pki::certificate::validity::DAY;
+    let f = Fixture::new();
+    let leaf = f.issue(47);
+    let before = f.service.db.all().unwrap().len();
+    let response = f
+        .service
+        .poll_renewal(&leaf.certificate.fingerprint, &leaf.download_token)
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&response).unwrap(),
+        serde_json::json!({"result":200,"renewed":false,"status":"VALID","fingerprint":leaf.certificate.fingerprint})
+    );
+    assert_eq!(f.service.db.all().unwrap().len(), before);
+    let pending = f
+        .service
+        .request_admin_renewal(&leaf.certificate.fingerprint, ADMIN)
+        .unwrap();
+    assert!(!pending.renewed);
+    assert_eq!(f.service.db.all().unwrap().len(), before);
+    let renewed = f
+        .service
+        .poll_renewal(&leaf.certificate.fingerprint, &leaf.download_token)
+        .unwrap();
+    assert!(renewed.renewed);
+    let replacement = f.service.db.metadata(&renewed.fingerprint).unwrap();
+    assert_eq!(
+        replacement.validity.not_after - replacement.validity.not_before,
+        47 * DAY
+    );
+    assert_eq!(
+        f.service
+            .db
+            .revocation_status(&leaf.certificate.fingerprint)
+            .unwrap(),
+        Some(None)
+    );
+    f.service
+        .retire_superseded(pending.revoke_at.unwrap())
+        .unwrap();
+    let revoked = f
+        .service
+        .poll_renewal(&leaf.certificate.fingerprint, &leaf.download_token)
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&revoked).unwrap(),
+        serde_json::json!({"result":409,"renewed":false,"status":"REVOKED","fingerprint":leaf.certificate.fingerprint})
+    );
+    let short = f.issue(7);
+    let short_new = f
+        .service
+        .poll_renewal(&short.certificate.fingerprint, &short.download_token)
+        .unwrap();
+    assert!(short_new.renewed);
+    let short_meta = f.service.db.metadata(&short_new.fingerprint).unwrap();
+    assert_eq!(
+        short_meta.validity.not_after - short_meta.validity.not_before,
+        7 * DAY
+    );
+}
+
+#[test]
+fn automatic_leaf_pending_window_and_ca_retirement_are_independent() {
+    use autobricks_pki::certificate::validity::DAY;
+    let f = Fixture::new();
+    let leaf = f.issue(47);
+    let other = f.issue(47);
+    let timestamp = now();
+    let conn = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
+    conn.execute(
+        "UPDATE certificates SET not_after=? WHERE fingerprint=?",
+        rusqlite::params![timestamp + 7 * DAY, leaf.certificate.fingerprint],
+    )
+    .unwrap();
+    conn.execute(
+        "UPDATE certificates SET not_after=? WHERE fingerprint=?",
+        rusqlite::params![timestamp + 7 * DAY + 1, other.certificate.fingerprint],
+    )
+    .unwrap();
+    conn.execute("INSERT INTO settings(name,value) VALUES('renewal_scheduler_last_attempt',?) ON CONFLICT(name) DO UPDATE SET value=excluded.value",[serde_json::to_vec(&timestamp).unwrap()]).unwrap();
+    let count = f.service.db.all().unwrap().len();
+    assert!(!f.service.run_hourly_renewal(timestamp).unwrap());
+    let pending = f
+        .service
+        .db
+        .filtered_certificate_page(
+            false,
+            autobricks_pki::storage::listing::ListFilter::Renew,
+            0,
+            None,
+        )
+        .unwrap();
+    assert!(
+        pending
+            .entries
+            .iter()
+            .any(|c| c.fingerprint == leaf.certificate.fingerprint)
+    );
+    assert!(
+        !pending
+            .entries
+            .iter()
+            .any(|c| c.fingerprint == other.certificate.fingerprint)
+    );
+    assert_eq!(f.service.db.all().unwrap().len(), count);
+    let ca = f.service.db.issuer("www.autobricks.internal").unwrap();
+    let pending = f
+        .service
+        .renew_intermediate(&ca.fingerprint, ADMIN)
+        .unwrap();
+    let start = pending.superseded_at.unwrap();
+    f.service.maintain().unwrap();
+    let new_ca = f.service.db.issuer(&ca.cn).unwrap();
+    assert_ne!(new_ca.fingerprint, ca.fingerprint);
+    f.service.retire_superseded(start + 7 * DAY).unwrap();
+    assert_eq!(
+        f.service.db.revocation_status(&ca.fingerprint).unwrap(),
+        Some(None)
+    );
+    f.service.retire_superseded(start + 48 * DAY - 1).unwrap();
+    assert_eq!(
+        f.service.db.revocation_status(&ca.fingerprint).unwrap(),
+        Some(None)
+    );
+    f.service.retire_superseded(start + 48 * DAY).unwrap();
+    assert_eq!(
+        f.service.db.revocation_status(&ca.fingerprint).unwrap(),
+        Some(Some(start + 48 * DAY))
+    );
+    assert_eq!(
+        f.service.db.revocation_status(&new_ca.fingerprint).unwrap(),
+        Some(None)
+    );
+}

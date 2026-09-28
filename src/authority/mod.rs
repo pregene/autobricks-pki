@@ -32,6 +32,7 @@ impl DefaultIssuer {
 pub const ROOT_NOT_AFTER: &str = "99991231235959Z";
 
 mod lifecycle;
+mod renewal;
 
 pub mod domain;
 pub mod subject;

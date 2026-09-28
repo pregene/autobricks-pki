@@ -70,3 +70,15 @@ CREATE INDEX IF NOT EXISTS certificates_dns_aliases
     ON certificates (idx)
     WHERE kind IN ('server','server-and-client') AND json_array_length(profile,'$.dns_names')>1;
 CREATE INDEX IF NOT EXISTS certificates_kind_idx ON certificates (kind, idx);
+
+CREATE INDEX IF NOT EXISTS certificates_leaf_state_idx ON certificates (valid, idx)
+    WHERE kind IN ('server','client','server-and-client');
+
+CREATE INDEX IF NOT EXISTS certificates_intermediate_state_idx ON certificates (valid, idx)
+    WHERE kind='intermediate';
+
+CREATE INDEX IF NOT EXISTS certificates_superseded_deadline ON certificates (superseded_at, idx)
+    WHERE valid='SUPERSEDED' AND revoked_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS certificates_leaf_renewal_due ON certificates (not_after, idx)
+    WHERE kind IN ('server','client','server-and-client') AND valid='VALID' AND revoked_at IS NULL;

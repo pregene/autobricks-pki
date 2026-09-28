@@ -100,15 +100,20 @@ fn route(s: &Service, r: &Request) -> Result<Response> {
         {
             let mut after = None;
             let mut through = None;
+            let mut filter = None;
             for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
                 match key.as_ref() {
                     "after" if after.is_none() => after = Some(value.parse::<i64>()?),
                     "through" if through.is_none() => through = Some(value.parse::<i64>()?),
+                    "status" if filter.is_none() => {
+                        filter = Some(crate::storage::listing::ListFilter::parse(&value)?);
+                    }
                     _ => return Err("invalid list query".into()),
                 }
             }
-            return json_response(s.db.certificate_page(
+            return json_response(s.db.filtered_certificate_page(
                 path == "/api/list-ca",
+                filter.unwrap_or(crate::storage::listing::ListFilter::Valid),
                 after.ok_or("missing list cursor")?,
                 through,
             )?);
@@ -158,14 +163,31 @@ fn route(s: &Service, r: &Request) -> Result<Response> {
         if r.path == "/api/create" {
             return json_response(s.create(serde_json::from_slice::<Create>(&r.body)?)?);
         }
-        if r.path == "/api/renew" {
+        if matches!(
+            r.path.as_str(),
+            "/api/renew" | "/api/renew-ca" | "/api/renew-admin"
+        ) {
             #[derive(serde::Deserialize)]
             #[serde(deny_unknown_fields)]
             struct RenewalRequest {
                 fingerprint: String,
             }
             let request: RenewalRequest = serde_json::from_slice(&r.body)?;
-            return json_response(s.renew(&request.fingerprint, bearer(r))?);
+            let outcome = match r.path.as_str() {
+                "/api/renew-admin" => {
+                    s.request_admin_renewal(&request.fingerprint, bearer(r).as_bytes())?
+                }
+                "/api/renew-ca" => {
+                    s.renew_intermediate(&request.fingerprint, bearer(r).as_bytes())?
+                }
+                _ => s.poll_renewal(&request.fingerprint, bearer(r))?,
+            };
+            let conflict = outcome.result == 409;
+            let mut response = json_response(outcome)?;
+            if conflict {
+                response.status = "409 Conflict";
+            }
+            return Ok(response);
         }
         let body: Value = serde_json::from_slice(&r.body)?;
         let text = |key: &str| {

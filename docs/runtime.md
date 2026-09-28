@@ -56,7 +56,7 @@ abpkid serve
 
 If external delivery fails after initialization commits, the CA hierarchy remains in SQLite. `serve` retries pending delivery; reinitialization does not replace the hierarchy. The local `root` command exports only the public Root CA certificate as PEM. Distribute this trust anchor through a trusted channel before connecting with `abpki-cli`.
 
-The scheduler polls every 30 seconds and runs Intermediate CA and service TLS certificate renewal maintenance once per hour. CRL maintenance retries pending publication and refreshes expiring CRLs independently. New TLS connections use the current service certificate. Other deployed leaf certificates remain the responsibility of their holders. HTTPS CRL retrieval reads the published WORM file without signing; pending, expired, or unavailable publications return an error.
+The scheduler polls every 30 seconds and runs renewal maintenance once per hour: Intermediate CAs within 48 days of expiration and the service TLS leaf within seven days. CRL maintenance retries pending publication and refreshes expiring CRLs independently. New TLS connections use the current service certificate. Other deployed leaf certificates remain the responsibility of their holders. HTTPS CRL retrieval reads the published WORM file without signing; pending, expired, or unavailable publications return an error.
 
 ## Client connection
 
@@ -91,14 +91,15 @@ Each command supplies its complete operation data through the Unix socket. The s
 | Command | Request body | Local request `credential` | Value source |
 | --- | --- | --- | --- |
 | `create` | Issuer and complete certificate profile. | null | CLI arguments/JSON input. |
-| `renew` | Existing fingerprint only; duration is preserved from the stored certificate. | Existing certificate access token. | CLI reads its calling user's protected certificate credential record. |
+| `renew` (leaf) | Existing fingerprint only; original duration is preserved. | Certificate access token. | CLI reads its calling user's protected certificate credential record. |
+| `renew --pass` (CA or leaf) | Existing fingerprint only; mark SUPERSEDED without issuance. | Administrator password. | Explicit argument or hidden CLI prompt; sent through the Unix socket. |
 | `revoke` | Target fingerprint. | Administrator password. | `--pass PASSWORD`, or an interactive hidden prompt when `--pass` has no value. |
 | `download` | Fingerprint in the existing path selector. | Certificate access token. | CLI reads its calling user's protected certificate credential record. |
 | `create-ca` | Unavailable in version 1.0. | Not used. | Returns Not implemented without performing issuance. |
 
 The CLI receives the issuance response through the socket and saves the returned fingerprint/token association before reporting successful credential capture. The credential record belongs to the invoking operating-system user, requires mode `0600` under a protected directory, and is not an application user account. Renewed tokens are saved against their new fingerprints; the old association is not overwritten with the new token. The daemon does not choose another caller's token based only on a supplied fingerprint.
 
-Normal command output excludes the token. A failed local credential save is reported explicitly: remote issuance may already have committed, so the CLI must not silently repeat issuance. No certificate-specific credential is stored in the daemon's global installation configuration. Missing local credentials prevent renewal/download from being forwarded; they do not cause a fallback to the administrator password or another user's token.
+Normal command output excludes the token. A failed local credential save is reported explicitly: remote issuance may already have committed, so the CLI must not silently repeat issuance. No certificate-specific credential is stored in the daemon's global installation configuration. Missing local credentials prevent normal token-authorized renewal/download from being forwarded; they do not cause a fallback to the administrator password or another user's token.
 
 Unix sockets carry the credentials under local filesystem access controls; they are not themselves TLS-encrypted. The remote hop is TLS-encrypted. Do not put credentials in audit payloads, diagnostic output, or process-wide daemon environment variables. A noninteractive invocation of `--pass` without a supplied value and without a terminal fails rather than reading a service environment variable.
 
@@ -178,17 +179,20 @@ abpki-cli check <fingerprint>
 abpki-cli renew <fingerprint>
 ```
 
-`download` creates `server.tar.gz` containing `certificate.pem`, `private-key.pem`, and `trust-chain`, all PEM-encoded. `renew` requires the existing certificate's token and the final seven-day renewal window. It preserves the original certificate's full validity duration; a seven-day certificate renews for seven days. Its response contains a replacement certificate and a new token. Renewal does not grant revocation permission.
+`download` creates `server.tar.gz` containing `certificate.pem`, `private-key.pem`, and `trust-chain`. Normal `renew` uses the existing leaf token. VALID returns `result=200, renewed=false`; SUPERSEDED returns `result=200, renewed=true` with the new fingerprint and token; REVOKED returns `result=409`. The CLI saves a new token only for renewed=true and hides it from output. The original validity duration is preserved exactly in seconds. [Response examples](../LEAF-RENEW.md#renewal-responses).
 
 ## Administrator operations
 
-There are no user accounts or user management. One administrator password authorizes leaf revocation. Additional Intermediate CA creation is not implemented in version 1.0. Intermediate names accept at most 16 ASCII letters, digits, or hyphens, excluding the optional `.<baseDomain>` suffix.
+There are no user accounts or user management. One administrator password authorizes leaf revocation, ADMIN renewal-state transitions. Additional Intermediate CA creation is not implemented in version 1.0. Intermediate names accept at most 16 ASCII letters, digits, or hyphens, excluding the optional `.<baseDomain>` suffix.
 
 ```sh
 abpki-cli revoke <fingerprint> --pass
+abpki-cli renew <intermediate-fingerprint> --pass
 ```
 
 `--pass PASSWORD` accepts the password directly. With `--pass` and no value, the CLI prompts on its own terminal without echo. It sends the supplied password as the Unix socket request credential; the daemon forwards it through TLS. Revocation and its pending CRL task commit before CRL signing. CRL publication failure does not reverse revocation. OCSP queries read the committed certificate status.
+
+ADMIN `/api/renew-admin` marks either CA or leaf SUPERSEDED and returns its fingerprint, transition time, and retirement deadline without issuing a certificate or token. `/api/renew-ca` restricts that transition to Intermediate CAs. Repeated requests retain the original deadline. The server processes pending CAs internally; leaf holders use normal renewal. Standalone check/OCSP statuses remain GOOD/REVOKED/UNKNOWN.
 
 ## Public HTTPS interfaces (5546)
 
@@ -213,6 +217,8 @@ The public listener exposes only the product information, Root CA, CRL, and OCSP
 | POST | `/api/create` | JSON certificate creation request |
 | POST | `/api/create-ca` | `501 Not Implemented` in version 1.0 |
 | POST | `/api/revoke` | Administrator-protected leaf revocation |
+| POST | `/api/renew-admin` | Administrator-authorized CA or leaf renewal |
+| POST | `/api/renew-ca` | Administrator-authorized Intermediate CA renewal |
 | POST | `/api/renew` | Token-protected leaf renewal |
 
 Management uses one request and response per TLS connection. New clients use `ABP1` framing: four magic bytes, a big-endian 32-bit JSON-header length, a big-endian 32-bit body length, the JSON header, and the raw body. The header contains the existing method/path/content-type/credential or status/content-type fields, without a body field. Header size is limited to 16 KiB. Total frames remain limited to 1 MiB for requests and 16 MiB for responses. Private credentials remain inside TLS.
@@ -237,3 +243,7 @@ Revocation immediately attempts CRL publication after committing certificate sta
 
 
 OCSP caches SHA-1/SHA-256 issuer name/key hashes in memory. A changed Intermediate CA generation refreshes that cache; no issuer cache or PEM body is added to SQLite. Each OCSP request is parsed once and current leaf status is queried by issuer and serial. Leaf revocation results are never cached.
+
+Leaf and Intermediate CA list pages accept `status=valid|revoked|renew|all` with `after` and optional `through`. Omitted status defaults to `valid`; `renew` selects stored `SUPERSEDED` rows. Unknown or duplicate status parameters are rejected. Both endpoints apply the state filter before pagination.
+
+SUPERSEDED retirement runs at startup and every maintenance pass independently of the hourly renewal gate. Leaf records with `superseded_at <= now - 604800` and CA records with `superseded_at <= now - 4147200` are revoked in indexed batches of 256. Revocation and audit/CRL tasks commit before signing. Missing transition timestamps are reported without fabricating a deadline. Root-signed CRLs publish retired Intermediate CAs through the same `/crl/<issuer>` endpoint.

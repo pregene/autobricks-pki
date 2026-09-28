@@ -18,6 +18,44 @@ pub struct CertificatePage {
     pub next_after: Option<i64>,
     pub through: i64,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ListFilter {
+    Valid,
+    Revoked,
+    Renew,
+    All,
+}
+
+impl ListFilter {
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "valid" => Ok(Self::Valid),
+            "revoked" => Ok(Self::Revoked),
+            "renew" => Ok(Self::Renew),
+            "all" => Ok(Self::All),
+            _ => Err("invalid list filter; use valid, revoked, renew, or all".into()),
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Valid => "valid",
+            Self::Revoked => "revoked",
+            Self::Renew => "renew",
+            Self::All => "all",
+        }
+    }
+
+    fn predicate(self) -> &'static str {
+        match self {
+            Self::Valid => "valid='VALID'",
+            Self::Revoked => "valid='REVOKED'",
+            Self::Renew => "valid='SUPERSEDED'",
+            Self::All => "1=1",
+        }
+    }
+}
+
 impl Database {
     pub fn list_certificates(&self, intermediate: bool) -> Result<Vec<CertificateListEntry>> {
         let page = self.certificate_page(intermediate, 0, None)?;
@@ -32,6 +70,17 @@ impl Database {
         after: i64,
         through: Option<i64>,
     ) -> Result<CertificatePage> {
+        self.filtered_certificate_page(intermediate, ListFilter::Valid, after, through)
+    }
+
+    pub fn filtered_certificate_page(
+        &self,
+        intermediate: bool,
+        filter: ListFilter,
+        after: i64,
+        through: Option<i64>,
+    ) -> Result<CertificatePage> {
+        let state = filter.predicate();
         let through = match through {
             Some(upper) => upper,
             None => {
@@ -50,7 +99,7 @@ impl Database {
             "kind IN ('server','client','server-and-client')"
         };
         let mut query = self.conn.prepare(&format!(
-            "SELECT idx,cn,fingerprint,valid,not_before,MAX(0,(not_after-?1+86399)/86400) FROM certificates WHERE {kinds} AND idx>?2 AND idx<=?3 ORDER BY idx LIMIT ?4"))?;
+            "SELECT idx,cn,fingerprint,valid,not_before,MAX(0,(not_after-?1+86399)/86400) FROM certificates WHERE {kinds} AND {state} AND idx>?2 AND idx<=?3 ORDER BY idx LIMIT ?4"))?;
         let mut entries = query
             .query_map(
                 rusqlite::params![
@@ -113,7 +162,11 @@ mod tests {
         assert_eq!(ca.len(), 1);
         assert_eq!(ca[0].idx, 2);
         assert_eq!(ca[0].remain, 0);
-        let leaves = db.list_certificates(false).unwrap();
+        assert!(db.list_certificates(false).unwrap().is_empty());
+        let leaves = db
+            .filtered_certificate_page(false, ListFilter::All, 0, None)
+            .unwrap()
+            .entries;
         assert_eq!(leaves.len(), 1);
         assert_eq!(leaves[0].valid, "REVOKED");
         assert_eq!(leaves[0].remain, 0);

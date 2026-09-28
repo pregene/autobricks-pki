@@ -81,3 +81,27 @@ fn renewal_preserves_exact_duration_and_issuer_boundary() {
         assert!(old.renewed(issuer.not_after - seconds + 1, issuer).is_err());
     }
 }
+
+#[test]
+fn intermediate_and_leaf_renewal_windows_are_independent() {
+    let validity = Validity::new(0, 398, None).unwrap();
+    let ca_start = validity.not_after - 48 * DAY;
+    assert!(!validity.intermediate_renewable(ca_start - 1));
+    assert!(validity.intermediate_renewable(ca_start));
+    assert!(validity.intermediate_renewable(ca_start + 1));
+    assert!(!validity.renewable(ca_start));
+    let leaf_start = validity.not_after - 7 * DAY;
+    assert!(!validity.renewable(leaf_start - 1));
+    assert!(validity.renewable(leaf_start));
+    assert!(validity.renewable(leaf_start + 1));
+    for time in [
+        -1,
+        validity.not_after,
+        validity.not_after + 1,
+        i64::MIN,
+        i64::MAX,
+    ] {
+        assert!(!validity.intermediate_renewable(time));
+        assert!(!validity.renewable(time));
+    }
+}

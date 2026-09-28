@@ -20,3 +20,9 @@
 | 16 | 2026-09-28 | 1.0.105 | Medium: non-unique DNS expression indexes replace profile scans; same-CN/DNS renewal remains allowed and legacy aliases remain checked. | 1.0.111 | 2026-09-28 |
 | 17 | 2026-09-28 | 1.0.105 | Medium: idx cursor pages return at most 256 certificates and CLI output streams each page with a fixed upper bound. | 1.0.111 | 2026-09-28 |
 | 18 | 2026-09-28 | 1.0.105 | Medium: ABP1 length-prefixed framing sends raw bodies without JSON byte-array expansion; legacy requests receive legacy replies. | 1.0.111 | 2026-09-28 |
+| 19 | 2026-09-28 | 1.0.111 | Leaf lists lack status selectors; added default VALID, revoked/REVOKED, renew/SUPERSEDED, and all filters with indexed pagination. | 1.0.114 | 2026-09-28 |
+| 20 | 2026-09-28 | 1.0.111 | Intermediate CA lists lack state filters; added default VALID, revoked/REVOKED, renew/SUPERSEDED, and all filters with indexed pagination. | 1.0.114 | 2026-09-28 |
+| 21 | 2026-09-28 | 1.0.111 | Intermediate CA renewal used the leaf seven-day window, limiting 47-day leaf issuance near CA expiry; separated the CA window to 48 days while retaining seven days for leaves. | 1.0.114 | 2026-09-28 |
+| 22 | 2026-09-28 | 1.0.111 | ADMIN CA renew marks VALID as SUPERSEDED without issuance; the server creates the replacement internally and preserves its original duration. | 1.0.114 | 2026-09-28 |
+| 23 | 2026-09-28 | 1.0.111 | ADMIN leaf renew marks VALID as SUPERSEDED without issuance; normal token-authorized renewal polls state and only issues for SUPERSEDED. | 1.0.114 | 2026-09-28 |
+| 24 | 2026-09-28 | 1.0.111 | SUPERSEDED lifecycle records automatic/admin transitions and retires leaves after seven days and Intermediate CAs after 48 days, independent of renewal/download completion. | 1.0.114 | 2026-09-28 |

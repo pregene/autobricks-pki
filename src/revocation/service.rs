@@ -21,7 +21,7 @@ impl Service {
             let timestamp = now();
             self.db.conn.execute("UPDATE certificates SET valid='REVOKED',revoked_at=? WHERE fingerprint=?", params![timestamp,id])?;
             let issuer: String = self.db.conn.query_row("SELECT issuer FROM certificates WHERE fingerprint=?", [id], |row| row.get(0))?;
-            let lineage = self.db.ca_lineage(&issuer)?;
+            let lineage = self.db.crl_issuers(&issuer)?;
             let identity = lineage.first().ok_or("empty CA lineage")?;
             let pending: bool = self.db.conn.query_row(
                 "SELECT EXISTS(SELECT 1 FROM outbox WHERE kind='crl' AND payload=? AND done=0)",
@@ -46,7 +46,7 @@ impl Service {
     }
     pub(crate) fn publish_pending_crl(&self, id: &str) -> Result<()> {
         self.db.transaction(|| {
-            let lineage = self.db.ca_lineage(id)?;
+            let lineage = self.db.crl_issuers(id)?;
             let mut pending = false;
             for fingerprint in &lineage {
                 pending |= self.db.conn.query_row(
@@ -63,7 +63,7 @@ impl Service {
         })
     }
     pub(crate) fn publish_crl(&self, issuer: &Certificate, timestamp: i64) -> Result<()> {
-        let lineage = self.db.ca_lineage(&issuer.fingerprint)?;
+        let lineage = self.db.crl_issuers(&issuer.fingerprint)?;
         let mut previous = 0i64;
         for fingerprint in &lineage {
             let number: i64 = self.db.conn.query_row(
@@ -79,7 +79,10 @@ impl Service {
         }
         let signer = openssl::x509::X509::from_pem(issuer.pem.as_bytes())?;
         let signer_key = signer.public_key()?;
-        for ca in certificates.iter().filter(|c| c.kind == "intermediate") {
+        for ca in certificates
+            .iter()
+            .filter(|c| lineage.contains(&c.fingerprint))
+        {
             let certificate = openssl::x509::X509::from_pem(ca.pem.as_bytes())?;
             if certificate.subject_name().to_der()? != signer.subject_name().to_der()?
                 || !certificate.public_key()?.public_eq(&signer_key)
@@ -105,10 +108,10 @@ impl Service {
     }
     pub fn crl(&self, id: &str) -> Result<Vec<u8>> {
         let (fingerprint, path, next): (String, String, i64) = self.db.conn.query_row(
-            "SELECT c.fingerprint,r.crl_path,r.next_update FROM certificates c JOIN crls r ON r.issuer=c.idx WHERE c.kind='intermediate' AND (c.fingerprint=?1 OR c.cn=?1) ORDER BY (c.fingerprint=?1) DESC,c.not_after DESC,c.idx DESC LIMIT 1",
+            "SELECT c.fingerprint,r.crl_path,r.next_update FROM certificates c JOIN crls r ON r.issuer=c.idx WHERE c.kind IN ('root','intermediate') AND (c.fingerprint=?1 OR c.cn=?1) ORDER BY (c.fingerprint=?1) DESC,c.not_after DESC,c.idx DESC LIMIT 1",
             [id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?)))?;
         let mut pending = false;
-        for generation in self.db.ca_lineage(&fingerprint)? {
+        for generation in self.db.crl_issuers(&fingerprint)? {
             pending |= self.db.conn.query_row(
                 "SELECT EXISTS(SELECT 1 FROM outbox WHERE kind='crl' AND payload=? AND done=0)",
                 [&generation],
@@ -122,7 +125,7 @@ impl Service {
     }
 
     pub fn refresh_expired_crls(&self) -> Result<()> {
-        let mut query = self.db.conn.prepare("SELECT c.fingerprint FROM certificates c LEFT JOIN crls r ON r.issuer=c.idx WHERE c.kind='intermediate' AND (r.idx IS NULL OR r.next_update<=?)")?;
+        let mut query = self.db.conn.prepare("SELECT c.fingerprint FROM certificates c LEFT JOIN crls r ON r.issuer=c.idx WHERE (c.kind='intermediate' OR (c.kind='root' AND r.idx IS NOT NULL)) AND (r.idx IS NULL OR r.next_update<=?)")?;
         let issuers = query
             .query_map([now()], |row| row.get::<_, String>(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -132,7 +135,7 @@ impl Service {
             if visited.contains(&id) {
                 continue;
             }
-            let lineage = self.db.ca_lineage(&id)?;
+            let lineage = self.db.crl_issuers(&id)?;
             visited.extend(lineage.iter().cloned());
             if let Err(error) = self.db.transaction(|| {
                 let issuer = self.db.get(lineage.last().ok_or("empty CA lineage")?)?;

@@ -65,18 +65,18 @@ A leaf's expiration does not block administrator revocation. Revoking one finger
 
 ### Renewal
 
-| Condition | Result | Persistence and client action |
+| Condition | Result | Behavior |
 | --- | --- | --- |
-| Missing access token | `403` | Supply the certificate-specific token. |
-| Syntactically valid fingerprint is absent | `404` | No replacement is issued. |
-| Present target with wrong token, or a CA target without a leaf token | `403` | No replacement is issued. Administrator credentials do not substitute for the leaf token. |
-| Revoked, not-yet-valid, expired, or more than seven days remain | `409` | No replacement is issued. Only an eligible unrevoked leaf can renew. |
-| The preserved duration exceeds the selected issuer | `400` | Use a suitable valid issuer generation; renewal retains the existing duration and has no duration parameter. |
-| Stored original issuer or required persisted profile is missing/corrupt | `500` | Internal state is inconsistent; this is not a caller's missing-certificate error. |
-| Replacement certificate transaction commits | `200` | Save the new fingerprint and new token. The old certificate remains independent. |
-| Replacement key generation, signing, or storage fails before commit | `500` | Roll back the replacement and its queued operations. |
+| Valid leaf token, VALID state | `200` | `renewed=false`; no certificate is created. |
+| Valid leaf token, SUPERSEDED state | `200` | `renewed=true`; issue a new VALID certificate with the original duration. |
+| REVOKED target with valid authorization | `409` | `renewed=false`, `status=REVOKED`; no replacement. |
+| Incorrect leaf token or ADMIN password | `403` | Authorization is rejected; the current generic route mapping below still applies. |
+| ADMIN transition of VALID | `200` | Mark SUPERSEDED; return the first transition time and fixed retirement deadline; do not issue a certificate. |
+| Repeated ADMIN transition of SUPERSEDED | `200` | Return the same deadline without issuing or resetting time. |
+| Expired/not-yet-valid certificate or invalid target type | `409` / `400` | No replacement; existing route rejection mapping applies. |
+| Preserved duration exceeds issuer validity | `400` | Reject without shortening duration. |
 
-Renewal is eligible when `0 < not_after - now <= 604800` and validity has started. The response-loss behavior below also applies: repeating renewal can create more than one replacement.
+Successful normal renewal returns a private download token on the wire; the CLI saves it and hides it from normal output. Old certificates remain SUPERSEDED until their fixed deadline. [Response examples](LEAF-RENEW.md#renewal-responses).
 
 ### Lookup and download operations
 
@@ -214,11 +214,9 @@ A successful certificate transaction has result `200` even if subsequent DNS or 
 
 Audit rows are stored only after TrueLog confirmation. When submission fails, the queued event retains its original operation result for retry. TrueLog success confirms audit delivery; it does not determine whether the recorded PKI operation succeeded. For example, TrueLog can successfully store an event whose operation result is `403` or `500`.
 
-## Replacement download confirmation
+## Retirement
 
-The completion operation in [renewal handover](LEAF-RENEW.md#download-completion-and-automatic-revocation) uses the same result catalog: `200` when the predecessor revocation commits or was already committed, `403` for an invalid replacement access token, `404` for an unknown replacement, and `500` for broken predecessor references or revocation/CRL transaction failure. No client-selected predecessor is accepted. A failed confirmation must not be reported as completed automatic revocation.
-
-Automatic predecessor revocation produces a `REVOKE` audit event with `result=200` after the transaction commits. Its context identifies the replacement that triggered the transition. Failure to deliver that audit event does not change the revocation result.
+Downloads and successful renewals do not trigger predecessor revocation. Leaf retirement occurs seven days after SUPERSEDED; Intermediate CA retirement occurs after 48 days without leaf-completion checks. Revocation persists before CRL publication and audit delivery.
 
 ## Failure recovery and retry rules
 

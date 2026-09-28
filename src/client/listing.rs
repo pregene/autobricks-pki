@@ -52,11 +52,13 @@ fn clean(value: &str) -> String {
 pub fn print_all(
     socket: &std::path::Path,
     command: &str,
+    filter: crate::storage::listing::ListFilter,
     output: &mut impl std::io::Write,
 ) -> Result<()> {
     stream_pages(
         |after, through| {
             let mut path = format!("/api/{command}?after={after}");
+            path.push_str(&format!("&status={}", filter.name()));
             if let Some(through) = through {
                 path.push_str(&format!("&through={through}"));
             }

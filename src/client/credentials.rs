@@ -40,6 +40,7 @@ pub fn save_response(response: &[u8]) -> Result<()> {
     let value: serde_json::Value = serde_json::from_slice(response)?;
     let fingerprint = value["certificate"]["fingerprint"]
         .as_str()
+        .or_else(|| value["fingerprint"].as_str())
         .ok_or("missing issued fingerprint")?;
     let token = value["download_token"]
         .as_str()

@@ -72,6 +72,17 @@ CREATE INDEX IF NOT EXISTS certificates_dns_aliases
     ON certificates (idx)
     WHERE kind IN ('server','server-and-client') AND json_array_length(profile,'$.dns_names')>1;
 CREATE INDEX IF NOT EXISTS certificates_kind_idx ON certificates (kind, idx);
+CREATE INDEX IF NOT EXISTS certificates_leaf_state_idx ON certificates (valid, idx)
+    WHERE kind IN ('server','client','server-and-client');
+CREATE INDEX IF NOT EXISTS certificates_intermediate_state_idx ON certificates (valid, idx)
+    WHERE kind='intermediate';
+CREATE INDEX IF NOT EXISTS certificates_superseded_deadline ON certificates (superseded_at, idx)
+    WHERE valid='SUPERSEDED' AND revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS certificates_leaf_renewal_due ON certificates (not_after, idx)
+    WHERE kind IN ('server','client','server-and-client') AND valid='VALID' AND revoked_at IS NULL;
+
+
+
 
 CREATE TABLE IF NOT EXISTS crls (
     idx INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -182,9 +193,9 @@ SQLite stores the encryption password; encrypted keys reside on WORM. Access to 
 | `not_after` | End of validity, as Unix UTC seconds. The Root CA uses `253402300799` (9999-12-31 23:59:59 UTC) to represent its unrestricted lifetime. |
 | `certificate_path` | Relative path to the certificate PEM under `ABPKI_WORM`. PEM contents are not stored in this table. |
 | `private_key_path` | Relative path to the encrypted PKCS#8 private-key PEM under `ABPKI_WORM`. Applies to Root, Intermediate, and leaf keys; key contents are not stored in this table. |
-| `previous_certificate_idx` | Previous certificate replaced by this renewal. Set from the existing certificate row during renewal; null for initial issuance. Provides the exact predecessor for automatic revocation after replacement download confirmation. |
+| `previous_certificate_idx` | Previous certificate replaced by this renewal. Set from the existing certificate row during renewal; null for initial issuance. Identifies the exact predecessor while both generations retain independent lifecycle state. |
 | `valid` | `VALID`, `REVOKED`, or `SUPERSEDED`. New certificates default to `VALID`; `SUPERSEDED` identifies an old certificate temporarily usable during renewal handover. |
-| `superseded_at` | UTC Unix timestamp when the certificate enters `SUPERSEDED`. Written by the transition transaction. For an old Intermediate CA, defines its fixed seven-day handover deadline; not reset by retries. Null before handover. |
+| `superseded_at` | UTC Unix timestamp when the certificate enters `SUPERSEDED`. Written by the transition transaction. Defines a seven-day leaf or 48-day Intermediate CA retirement deadline; not reset by retries. Null before handover. |
 | `revoked_at` | Revocation timestamp as Unix UTC seconds; `NULL` until revocation. Recorded together with the `REVOKED` state. |
 | `profile` | Leaf issuance profile as JSON; `NULL` for CA certificates. Fields include `kind`, `common_name`, `dns_names`, `ip_addresses`, `uri_sans`, and `validity` with `not_before` and `not_after`. |
 | `download_hash` | 32-byte SHA-256 digest used to verify the certificate access token for download and renewal; `NULL` for CA certificates. |
@@ -203,15 +214,9 @@ An accepted renewal puts the existing certificate into `SUPERSEDED`; the replace
 
 X.509 CRLs define `superseded (4)` as a **revocation reason** in [RFC 5280 Section 5.3.1](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.3.1). That reason applies to an actual revocation. It does not give a revoked certificate permission to remain usable. The local temporary `SUPERSEDED` state must therefore remain separate from publishing a CRL entry with that reason.
 
-Successful replacement download confirmation automatically changes the old certificate from `SUPERSEDED` to `REVOKED`, sets `revoked_at`, and queues CRL publication and its revocation audit event in one transaction. CRL signing occurs after the revocation commits; signing failure cannot reverse revocation. The replacement remains `VALID`. The predecessor is found through the replacement's `previous_certificate_idx`, never by selecting another certificate with the same CN.
+Renewal links the new VALID certificate to its predecessor. The predecessor remains SUPERSEDED after renewal and download. ADMIN requests only mark the selected VALID certificate SUPERSEDED. Automatic CA replacement marks its dependent non-revoked leaves SUPERSEDED; the first transition timestamp is retained.
 
-Confirmation is authenticated with the replacement fingerprint and its access token after the client has saved and synchronized the archive. A socket write alone does not establish successful download. Missing confirmation leaves the old certificate `SUPERSEDED` within its existing validity period. Repeated confirmation after revocation is successful without duplicating the revocation transition.
-
-This automatic revocation is restricted to the predecessor of the confirmed replacement. It is a server-controlled renewal operation; it does not grant token holders general revocation permission. Standalone revocation continues to require the administrator password.
-
-The lifecycle fields, download confirmation, and automatic revocation handling are specified here; current runtime code does not yet implement them.
-
-Intermediate CA handover marks the old CA and its non-revoked dependent leaves `SUPERSEDED`. The old CA is retired when all dependent leaves are retired, or forcibly at `superseded_at + 604800`, whichever condition occurs first. At the deadline, remaining non-revoked old leaves are also revoked, even without replacement download confirmation. Membership uses `intermediate_leaf.intermediate_idx`; predecessor links identify each replacement precisely. See [Intermediate CA handover](INTERMEDIATE.md#intermediate-ca-renewal-handover).
+The scheduler marks unexpired VALID leaves SUPERSEDED when seven days remain, without issuing replacements. Indexed batches of at most 256 records handle readiness and retirement. Leaf retirement is `superseded_at + 604800`; Intermediate CA retirement is `superseded_at + 4147200`. Retirement does not depend on renewal or download completion and never resets deadlines. State, audit, and CRL tasks commit before signing. Missing transition timestamps are reported as invalid state.
 
 ### Fingerprint and serial encoding
 

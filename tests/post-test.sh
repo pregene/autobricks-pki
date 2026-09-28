@@ -77,8 +77,8 @@ def help_output(command=None):
     require('Usage:' in text and 'abpki-cli' in text, 'Missing usage help')
 
 
-def listing(command):
-    text = run([cli, command]).stdout
+def listing(command, *arguments):
+    text = run([cli, command, *arguments]).stdout
     lines = text.strip().splitlines()
     require(bool(lines) and lines[0].split() ==
             ['Index', 'Common', 'Name', 'Status', 'IssuedAt', 'remain', 'Fingerprint'],
@@ -194,6 +194,19 @@ if rows:
     test('Installed concurrent X.509 requests (8 callers)', concurrent_info)
 else:
     report('Installed concurrent requests', 'SKIP', 'No certificate available')
+
+def list_filters(command):
+    all_rows = listing(command, 'all')
+    for selector, state in [('valid', 'VALID'), ('revoked', 'REVOKED'), ('renew', 'SUPERSEDED')]:
+        require(listing(command, selector) == [row for row in all_rows if row[1] == state],
+                'Incorrect list filter: ' + selector)
+    require(listing(command) == listing(command, 'valid'), 'Default list differs from valid')
+    require(run([cli, command, 'invalid'], success=False).returncode != 0,
+            'Invalid filter was accepted')
+
+
+test('Installed FIXED-19 list valid/revoked/renew/all and default', lambda: list_filters('list'))
+test('Installed FIXED-20 list-ca valid/revoked/renew/all and default', lambda: list_filters('list-ca'))
 
 sys.path.insert(0, str(project / 'tests/post_test'))
 sys.dont_write_bytecode = True

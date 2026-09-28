@@ -124,7 +124,7 @@ impl Database {
             .collect()
     }
     pub fn due_intermediates(&self, now: i64) -> Result<Vec<Certificate>> {
-        Ok(self.records("WHERE kind='intermediate' AND revoked_at IS NULL AND not_before<=?1 AND not_after>?1 AND not_after<=?2 AND NOT EXISTS(SELECT 1 FROM certificates successor WHERE successor.previous_certificate_idx=certificates.idx AND successor.kind='intermediate') ORDER BY idx", rusqlite::params![now, now.saturating_add(crate::certificate::validity::RENEWAL_SECONDS)])?.into_iter().map(Self::without_files).collect())
+        Ok(self.records("WHERE kind='intermediate' AND revoked_at IS NULL AND not_before<=?1 AND not_after>?1 AND (valid='SUPERSEDED' OR not_after<=?2) AND NOT EXISTS(SELECT 1 FROM certificates successor WHERE successor.previous_certificate_idx=certificates.idx AND successor.kind='intermediate') ORDER BY idx", rusqlite::params![now, now.saturating_add(crate::certificate::validity::INTERMEDIATE_RENEWAL_SECONDS)])?.into_iter().map(Self::without_files).collect())
     }
     pub fn by_issuer_serial(&self, issuer: &str, serial: &str) -> Result<Option<Certificate>> {
         Ok(self

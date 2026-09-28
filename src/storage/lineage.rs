@@ -1,6 +1,14 @@
 use crate::{Result, storage::database::Database};
 
 impl Database {
+    pub(crate) fn crl_issuers(&self, fingerprint: &str) -> Result<Vec<String>> {
+        if self.metadata(fingerprint)?.kind == "root" {
+            Ok(vec![fingerprint.to_owned()])
+        } else {
+            self.ca_lineage(fingerprint)
+        }
+    }
+
     /// Resolve renewal generations by predecessor keys, never by a shared CN.
     pub fn ca_lineage(&self, fingerprint: &str) -> Result<Vec<String>> {
         let mut query = self.conn.prepare(

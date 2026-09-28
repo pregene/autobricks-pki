@@ -21,6 +21,22 @@ CASES = [
     ('lifecycle', 'paginated_lists_bound_memory_preserve_order_and_exclude_new_rows', 'FIXED-17 Bounded list pages preserve order and snapshot boundary'),
     ('management', 'binary_frames_round_trip_bytes_without_json_expansion', 'FIXED-18 Binary frames preserve bytes and enforce size limits'),
     ('management', 'legacy_frames_keep_response_format_and_binary_frames_do_not_consume_next', 'FIXED-18 Legacy reply compatibility and frame boundaries'),
+    ('lifecycle', 'leaf_list_filters_preserve_states_and_pagination', 'FIXED-19 Leaf state filters, default VALID, and indexed pagination'),
+    ('lifecycle', 'intermediate_list_filters_preserve_states_and_pagination', 'FIXED-20 Intermediate state filters, default VALID, and indexed pagination'),
+    ('policies', 'intermediate_and_leaf_renewal_windows_are_independent', 'FIXED-21 CA 48-day and leaf seven-day eligibility boundaries'),
+    ('lifecycle', 'intermediate_renewal_at_48_days_preserves_leaf_window', 'FIXED-21 CA query and renewal at 48 days; leaf and service TLS remain unchanged'),
+    ('lifecycle', 'manual_intermediate_renewal_requires_admin_and_preserves_lineage', 'FIXED-22 Manual CA renewal authorization, lifetime, key, and CRL continuity'),
+    ('lifecycle', 'cli_ca_renewal_forwards_admin_without_leaf_token', 'FIXED-22 CLI forwards admin over Unix socket without a leaf token'),
+    ('lifecycle', 'early_leaf_renewal_requires_admin_and_preserves_policy', 'FIXED-23 Early leaf renewal requires admin and preserves lifetime and issuer limits'),
+    ('lifecycle', 'cli_admin_leaf_renewal_marks_pending_without_token', 'FIXED-23 Admin leaf renewal marks pending without issuing a token'),
+    ('lifecycle', 'superseded_deadline_revokes_at_seven_days_and_survives_restart', 'FIXED-24 Seven-day retirement boundary, restart persistence, and no duplicate audit'),
+    ('lifecycle', 'superseded_retirement_commits_despite_crl_and_audit_failure', 'FIXED-24 Retirement survives delivery failures; leaf and Root-signed CA CRLs retry'),
+    ('lifecycle', 'superseded_retirement_batches_and_scheduler_ignore_hourly_gate', 'FIXED-24 Indexed retirement batches run independently of hourly renewal'),
+    ('lifecycle', 'renewal_records_superseded_state_and_keeps_original_deadline', 'FIXED-24 Renewal transitions CA and leaves without resetting deadlines'),
+    ('lifecycle', 'ca_handover_replaces_service_tls_before_forced_retirement', 'FIXED-24 Service TLS replacement survives old CA retirement'),
+    ('lifecycle', 'renewal_polling_contract_preserves_original_duration_and_retirement', 'Renewal response contract and inherited seven/47-day lifetime'),
+    ('lifecycle', 'automatic_leaf_pending_window_and_ca_retirement_are_independent', 'Leaf pending at seven days; CA retirement at 48 days without leaf conditions'),
+    ('lifecycle', 'cli_renewal_polling_saves_token_only_when_renewed', 'CLI polling stores new token only for renewed responses'),
 ]
 
 

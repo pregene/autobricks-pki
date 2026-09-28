@@ -29,11 +29,14 @@ pub fn generate(
     let next = Asn1Time::from_unix(next_update(now)?)?;
     b.set_last_update(&last)?;
     b.set_next_update(&next)?;
-    let generations: Vec<_> = certificates
+    let mut generations: Vec<_> = certificates
         .iter()
         .filter(|c| c.kind == "intermediate" && c.cn == issuer.cn)
         .map(|c| c.fingerprint.as_str())
         .collect();
+    if issuer.kind == "root" {
+        generations.push(issuer.fingerprint.as_str());
+    }
     for entry in certificates.iter().filter(|c| {
         c.issuer
             .as_deref()

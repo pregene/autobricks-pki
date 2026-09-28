@@ -47,59 +47,29 @@ For example, if an Intermediate CA has 20 days remaining, a leaf starting now ca
 
 The same boundary applies to renewed certificates. Intermediate CA renewal does not change the signed expiration of previously issued leaf certificates.
 
-## Renewal window
+## Renewal lifecycle
 
-Renewal is available only during the final seven days before expiration:
+| Certificate | Automatic transition | SUPERSEDED lifetime |
+| --- | --- | --- |
+| Intermediate CA | 48 days before expiry | 48 days from transition |
+| Server/client leaf | 7 days before expiry, or issuer CA replacement | 7 days from transition |
 
-```text
-remaining = certificate.notAfter - current_time_utc
-0 < remaining <= 7 days
-```
+ADMIN `renew --pass` changes a currently valid certificate to SUPERSEDED earlier without issuing its replacement. The server handles pending Intermediate CA replacement automatically. It marks related leaves SUPERSEDED after that replacement. Leaf holders poll `renew`: VALID returns a no-op; SUPERSEDED issues a new VALID certificate; REVOKED returns 409. Tokens authorize ordinary leaf renewal. `check` remains GOOD/REVOKED/UNKNOWN.
 
-| Remaining validity | Time eligibility for renewal |
-| --- | --- |
-| More than 7 days | Not yet eligible |
-| Exactly 7 days | Eligible |
-| Less than 7 days, before expiration | Eligible |
-| At or after expiration | Outside the renewal window |
+## Scheduling and retirement
 
-The seven-day window uses elapsed time: 7 × 24 hours. It applies to Intermediate CA and leaf renewal. Time eligibility alone does not grant operation permissions.
+The server checks leaf readiness and retirement at startup and every 30 seconds, independently of the hourly CA/service TLS renewal run. Hourly attempt times survive restarts. SUPERSEDED Intermediate CAs are renewed internally, including those initiated early by ADMIN. Service TLS is replaced internally when due or when its issuer is renewed.
 
-## Intermediate CA renewal
-
-`abpkid` runs its renewal scheduler once every hour and performs Intermediate CA renewal internally within the renewal window. The first server start runs the scheduler immediately; subsequent starts run immediately only when the persisted last-attempt time is at least one hour old. Each attempt is persisted before work begins, including failed attempts; failures are logged and the next scheduled attempt is one hour later. A stopped server does not run jobs. The running server checks the schedule every 30 seconds. CRL refresh and pending TrueLog/DNS delivery continue every 30 seconds independently of the hourly renewal schedule. The server also renews its own TLS certificate during the hourly run. This includes the six [default issuers](INTERMEDIATE.md): `database`, `www`, `vpn`, `worm`, `app`, and `truelog`.
-
-Renewal produces a newly signed Intermediate CA certificate. Previously issued certificates retain their original signed contents and validity. Certificate validation uses the applicable issuer chain; renewing a CA does not rewrite existing leaf certificates.
-
-## Server and client renewal
-
-The system holding a server or client certificate periodically checks its `notAfter` value and requests renewal with `abpki-cli renew ...` during the renewal window. `abpkid` does not replace deployed leaf certificates on behalf of their holders.
-
-The holder retrieves the renewed certificate and applicable chain and updates the consuming service's certificate configuration. Leaf renewal remains bounded by the issuing Intermediate CA's expiration.
-
-The `check` command's `GOOD`, `REVOKED`, and `UNKNOWN` labels do not replace checking the certificate's expiration timestamp.
-
-```mermaid
-flowchart TD
-    Check[Periodically check certificate expiration] --> Remaining{Remaining validity}
-    Remaining -->|More than 7 days| Wait[Continue periodic checks]
-    Wait --> Check
-    Remaining -->|At or after expiration| Outside[Outside renewal window]
-    Remaining -->|Within 7 days before expiration| Type{Certificate type}
-    Type -->|Intermediate CA| Internal[abpkid renews internally]
-    Type -->|Server or client| Holder[Holder requests renewal]
-    Internal --> Boundary[Validate new validity against issuer]
-    Holder --> Boundary
-    Boundary -->|Within issuer validity| Issue[Issue renewed certificate]
-    Boundary -->|Exceeds issuer validity| Reject[Reject requested validity]
-```
-
-[Certificate fields](CERTITFICATE.md) · [CLI commands](docs/cli.md)
-
-## Intermediate CA handover limit
-
-Intermediate CA renewal starts a fixed seven-day handover measured from its persisted `superseded_at`. The old CA and non-revoked dependent leaves use `SUPERSEDED` during the transition. Individual leaf download confirmations revoke their predecessors. Once all old leaves are retired, the old CA is revoked; at the deadline, remaining old leaves and the old CA are revoked without waiting for downloads. Existing `not_after` values are never extended by this handover. See [Intermediate CA handover](INTERMEDIATE.md#intermediate-ca-renewal-handover).
+Leaf retirement occurs at `superseded_at + 604800`; Intermediate CA retirement occurs at `superseded_at + 4147200`. Neither deadline depends on renewal or download completion. Repeated requests do not reset transition times. Due retirement of persisted SUPERSEDED records is processed on restart. A deadline is enforced on the next maintenance pass; downtime never extends signed certificate validity. Revocation commits before CRL and audit delivery. Missing transition timestamps are errors, never replaced with invented dates.
 
 ## Duration preservation on renewal
 
-Renewal retains `old.not_after - old.not_before` exactly in seconds and applies that duration from the new issuance time. It does not reset a custom lifetime to the default or accept a new duration. A seven-day leaf renews for seven days; shorter-lived Intermediate CAs likewise retain their original lifetime. If the new interval exceeds the issuer boundary, renewal fails rather than reducing the duration. Changing a duration requires a separate issuance request and remains subject to CN uniqueness rules.
+```text
+original_duration = old.not_after - old.not_before
+new.not_before = issuance_time_utc
+new.not_after = new.not_before + original_duration
+```
+
+Renewal preserves the original duration exactly in seconds, not the remaining lifetime. A seven-day certificate renews for seven days and a 47-day certificate for 47 days. Intermediate CAs also retain their original duration. Requests cannot override duration or profile. If the new interval exceeds issuer validity, issuance fails without shortening it. The original signed expiration remains effective during SUPERSEDED state.
+
+[Leaf renewal and responses](LEAF-RENEW.md) · [Intermediate CA lifecycle](INTERMEDIATE.md)

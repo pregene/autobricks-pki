@@ -50,16 +50,16 @@ pub(super) const OPERATIONS: &[Operation] = &[
     },
     Operation {
         name: "list-ca",
-        usage: "list-ca",
-        description: "List issuing Intermediate CA certificates.",
-        details: "Output:\n  Intermediate CA certificate records as JSON. Private keys are excluded.",
+        usage: "list-ca [valid|revoked|renew|all]",
+        description: "List Intermediate CA certificates by state; default: valid.",
+        details: "Filters:\n  valid    VALID certificates (default).\n  revoked  REVOKED certificates.\n  renew    SUPERSEDED certificates pending handover.\n  all      Certificates in every state.\n\nOutput:\n  Intermediate CA metadata table. Private keys are excluded.",
         example: "abpki-cli list-ca",
     },
     Operation {
         name: "list",
-        usage: "list",
-        description: "List issued leaf certificates.",
-        details: "Output:\n  Leaf certificate records as JSON. Private keys and access tokens are excluded.",
+        usage: "list [valid|revoked|renew|all]",
+        description: "List leaf certificates by state; default: valid.",
+        details: "Filters:\n  valid    VALID certificates (default).\n  revoked  REVOKED certificates.\n  renew    SUPERSEDED certificates awaiting replacement download.\n  all      Certificates in every state.\n\nOutput:\n  Metadata table; no PEM, private keys, or access tokens.",
         example: "abpki-cli list",
     },
     Operation {
@@ -78,9 +78,9 @@ pub(super) const OPERATIONS: &[Operation] = &[
     },
     Operation {
         name: "renew",
-        usage: "renew FINGERPRINT",
-        description: "Renew a leaf certificate while preserving its original validity duration.",
-        details: "Arguments:\n  FINGERPRINT\n      Existing leaf certificate fingerprint.\n\nRequires the certificate access token. The certificate must be unrevoked and within its final seven days before expiration.\nA seven-day certificate renews for seven days. There is no duration parameter.",
+        usage: "renew FINGERPRINT [--pass [PASSWORD]]",
+        description: "Poll leaf renewal or mark a certificate SUPERSEDED with --pass.",
+        details: "Arguments:\n  FINGERPRINT\n      Existing leaf or Intermediate CA fingerprint.\n\nWithout --pass: use the saved leaf token. VALID returns renewed=false; SUPERSEDED issues a new VALID leaf with renewed=true; REVOKED returns result 409.\nWith --pass: verify the administrator password and mark VALID as SUPERSEDED without issuance. Bare --pass prompts securely.\n\nNew certificates preserve the full original validity duration. Only renewed=true responses save a new download token; normal output hides the token.\nRetirement: seven days for leaves and 48 days for Intermediate CAs after the first SUPERSEDED transition. No duration parameter.",
         example: "abpki-cli renew <fingerprint>",
     },
     Operation {

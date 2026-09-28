@@ -97,44 +97,25 @@ impl Service {
         Ok(format!("{}{}", ca.pem, root.pem).into_bytes())
     }
     pub fn maintain(&self) -> Result<()> {
+        self.db.mark_due_leaves(now())?;
         for candidate in self.db.due_intermediates(now())? {
-            let ca = self.db.get(&candidate.fingerprint)?;
+            let ca = candidate;
             if ca.revoked_at.is_none()
-                && ca.validity.renewable(now())
+                && (ca.validity.intermediate_renewable(now())
+                    || self.db.is_superseded(&ca.fingerprint)?)
                 && !self.db.ca_has_successor(&ca.fingerprint)?
             {
-                self.db.transaction(|| {
-                    let root = self.db.get(&self.db.root_id()?)?;
-                    let rc = X509::from_pem(root.pem.as_bytes())?;
-                    let rk = PKey::private_key_from_pem(root.key_pem.as_bytes())?;
-                    let validity = ca.validity.renewed(now(), root.validity)?;
-                    if validity.not_after - validity.not_before
-                        > i64::from(self.intermediate_days()?) * crate::certificate::validity::DAY
-                    {
-                        return Err(
-                            "stored Intermediate CA duration exceeds installation policy".into(),
-                        );
-                    }
-                    let previous = X509::from_pem(ca.pem.as_bytes())?;
-                    let (cert, key) = crypto::ca_with_subject(
-                        &ca.cn,
-                        Some((&rc, &rk)),
-                        validity,
-                        PKey::private_key_from_pem(ca.key_pem.as_bytes())?,
-                        Some(previous.subject_name()),
-                    )?;
-                    let replacement =
-                        record(cert, key, "intermediate", Some(root.fingerprint), validity)?;
-                    self.db.insert(&replacement)?;
-                    self.db.conn.execute("UPDATE certificates SET previous_certificate_idx=(SELECT idx FROM certificates WHERE fingerprint=?) WHERE fingerprint=?", rusqlite::params![ca.fingerprint,replacement.fingerprint])?;
-                    self.archive(&replacement, "intermediate-renewed")?;
-                    self.publish_crl(&replacement, now())
-                })?;
+                self.db.mark_superseded(&ca.fingerprint, now())?;
+                self.renew_intermediate_internal(&ca.fingerprint)?;
             }
         }
         if let Some(id) = self.db.setting("tls_certificate")? {
             let current = self.db.metadata(&String::from_utf8(id)?)?;
-            if current.validity.renewable(now()) && current.revoked_at.is_none() {
+            if (current.validity.renewable(now()) || self.db.is_superseded(&current.fingerprint)?)
+                && current.revoked_at.is_none()
+                && now() >= current.validity.not_before
+                && now() < current.validity.not_after
+            {
                 let mut profile: LeafProfile =
                     serde_json::from_str(current.profile.as_deref().ok_or("missing TLS profile")?)?;
                 let old = self
@@ -144,6 +125,11 @@ impl Service {
                 profile.validity = current.validity.renewed(now(), issuer.validity)?;
                 self.db.transaction(|| {
                     let issued = self.create_inner(&issuer, &profile)?;
+                    self.db.record_handover(
+                        &current.fingerprint,
+                        &issued.certificate.fingerprint,
+                        now(),
+                    )?;
                     self.db
                         .set_setting("tls_certificate", issued.certificate.fingerprint.as_bytes())
                 })?;

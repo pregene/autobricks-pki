@@ -36,3 +36,17 @@ Isolated cases are labeled `Isolated` and use prebuilt Rust executables under `t
 | 16 | `dns_index_allows_renewal_but_blocks_new_issuance_and_finds_aliases` | Same-CN/DNS renewal succeeds; new duplicates fail; case-insensitive and multi-name lookups remain supported. |
 | 17 | `paginated_lists_bound_memory_preserve_order_and_exclude_new_rows` | Each page has at most 256 rows; output is ordered with one header, and later inserts are excluded by the initial upper bound. |
 | 18 | `binary_frames_round_trip_bytes_without_json_expansion`; `legacy_frames_keep_response_format_and_binary_frames_do_not_consume_next` | Binary bodies remain exact, oversized/truncated frames fail, and legacy JSON callers receive JSON replies. |
+| 19 | `leaf_list_filters_preserve_states_and_pagination` | VALID defaults, REVOKED/SUPERSEDED/all filters, multi-page results, invalid selectors, and indexed state lookup; installed CLI checks compare each filter against all rows. |
+| 20 | `intermediate_list_filters_preserve_states_and_pagination` | Intermediate CA filters and default VALID, multi-page metadata-only results, indexed lookup, invalid selectors, and legacy default behavior; installed CLI compares filtered CA lists with all generations. |
+| 21 | `intermediate_and_leaf_renewal_windows_are_independent`; `intermediate_renewal_at_48_days_preserves_leaf_window` | CA eligibility and SQL selection start at 48 days; leaves remain at seven days; CA renewal preserves lifetime and service TLS is not renewed early. |
+| 22 | `manual_intermediate_renewal_requires_admin_and_preserves_lineage`; `cli_ca_renewal_forwards_admin_without_leaf_token` | ADMIN only marks the CA pending; the server creates the replacement with preserved CN/key/lifetime/CRL continuity; the CLI does not load or save a leaf token. |
+| 23 | `early_leaf_renewal_requires_admin_and_preserves_policy`; `cli_admin_leaf_renewal_marks_pending_without_token` | ADMIN marks a leaf pending without issuance; normal renewal is a no-op for VALID and issues for SUPERSEDED, preserving the original lifetime. |
+| 24 | `superseded_deadline_revokes_at_seven_days_and_survives_restart`; `superseded_retirement_commits_despite_crl_and_audit_failure`; `superseded_retirement_batches_and_scheduler_ignore_hourly_gate` | Persisted seven-day leaf and 48-day CA deadlines, restart catch-up, metadata-only batches, idempotent revocation/audit, independent scheduler execution, and CRL failure recovery including Root-signed CA revocations. |
+
+## Renewal polling and lifetime checks
+
+| Case | Behavior |
+| --- | --- |
+| `renewal_polling_contract_preserves_original_duration_and_retirement` | Exact VALID/SUPERSEDED/REVOKED response shape, seven/47-day duration inheritance, and old-certificate retirement. |
+| `automatic_leaf_pending_window_and_ca_retirement_are_independent` | Leaf becomes pending at the seven-day boundary without issuance; CA retires at 48 days without inspecting leaf completion. |
+| `cli_renewal_polling_saves_token_only_when_renewed` | No-op creates no new token; successful renewal saves the replacement token privately and omits it from output. |

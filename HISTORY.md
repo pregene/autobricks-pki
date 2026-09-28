@@ -1,5 +1,18 @@
 # Development history
 
+## 1.0.114 — 2026-09-28
+
+- Updated the development status to TEATABLE and added SQLCipher integration to the version 1.2 roadmap.
+
+- Expanded leaf and Intermediate CA renewal guides with user and administrator procedures, response fields, deployment steps, retry handling, duration examples, and retirement timelines.
+
+- Added leaf and Intermediate CA state filters, defaulting to VALID, with indexed pagination and cumulative regression cases.
+- Added automatic SUPERSEDED readiness at seven days for leaves and 48 days for Intermediate CAs; ADMIN renewal requests only mark certificates pending.
+- Added normal renewal polling responses for VALID, SUPERSEDED, and REVOKED, private token capture only on issuance, and exact original-duration preservation.
+- Added unconditional retirement at seven days for leaves and 48 days for Intermediate CAs, with retained transition timestamps, bounded queries, CRL retry, and Root-signed CA revocation CRLs.
+
+- Added 16 cumulative regression cases for state filters and renewal lifecycle behavior, plus installed leaf and CA filter checks.
+
 ## 1.0.111 — 2026-09-28
 
 - Cached public OCSP issuer hashes, refreshed renewed CA generations, and removed duplicate request parsing while retaining live revocation lookup.

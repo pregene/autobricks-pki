@@ -1,6 +1,6 @@
 # Autobricks PKI Server 1.0
 
-**Development status: In development.**
+**Development status: TEATABLE.**
 
 Root CA and Intermediate CA management, with purpose-specific server and client certificate issuance, renewal, and revocation for the Autobricks product family.
 
@@ -62,7 +62,7 @@ All downloaded certificates, private keys, and trust chains use PEM encoding. Ea
 
 ## Certificate validity
 
-The Root CA has no defined expiration. Intermediate CA default and maximum validity are `min(398, TrueLog retention days - 7)`, calculated during installation; server and client certificates default to 47 days. Creation supports custom validity within the issuer boundary. Renewal is available during the final seven days before expiration. `abpkid` renews Intermediate CAs internally; leaf holders check and renew their own certificates.
+The Root CA has no defined expiration. Intermediate CA default and maximum validity are `min(398, TrueLog retention days - 7)`, calculated during installation; server and client certificates default to 47 days. Creation supports custom validity within the issuer boundary. Intermediate CAs enter SUPERSEDED at 48 days before expiration; leaves enter it at seven days or on issuer replacement. Normal renew polls state and only issues a replacement for SUPERSEDED. ADMIN renew marks pending without issuance. `abpkid` renews Intermediate CAs internally; leaf holders check and renew their own certificates.
 
 [Validity and renewal](VALIDATION.md)
 
@@ -89,6 +89,7 @@ Version 1.0 uses software cryptography with P-256 keys and SHA-256 signatures. T
 | Version | Planned feature |
 | --- | --- |
 | 1.1 | Additional Intermediate CA creation (`create-ca`) |
+| 1.2 | SQLCipher integration |
 | 1.3 | HSM integration |
 | 1.4 | TPM integration |
 

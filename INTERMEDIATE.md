@@ -58,7 +58,7 @@ flowchart TD
 
 ## Validity and renewal
 
-Intermediate CA default and maximum validity are calculated during installation as `min(398, TrueLog retention days - 7)`. A shorter duration can be requested at creation. `abpkid` renews these CAs internally during the final seven days before expiration. Server and client certificates default to 47 days and cannot outlive their issuing Intermediate CA.
+Intermediate CA default and maximum validity are calculated during installation as `min(398, TrueLog retention days - 7)`. A shorter duration can be requested at creation. `abpkid` renews these CAs internally during the final 48 days before expiration. Server and client certificates default to 47 days and cannot outlive their issuing Intermediate CA.
 
 [Validity and renewal rules](VALIDATION.md)
 
@@ -74,73 +74,62 @@ Root CA certificates are downloaded with `root`. An issued certificate's Interme
 
 [Common Names, DNS naming, and uniqueness](COMMON-NAME.md)
 
-## Intermediate CA renewal handover
+## Administrator-triggered renewal
 
-This section specifies coordinated CA and leaf handover. Runtime renewal records the replacement CA predecessor and maintains CRL continuity across the linked generations. It does not yet persist handover state, track leaf completion, or enforce the seven-day retirement deadline.
-
-An Intermediate CA renewal affects the exact old certificate generation and all leaf certificates issued by that generation. Determine membership through `intermediate_leaf.intermediate_idx` and join its `leaf_idx` to `certificates.idx`. The new Intermediate CA is `VALID`; the old CA and its non-revoked leaves become `SUPERSEDED`. Already revoked leaves remain `REVOKED`.
-
-New issuance uses the new `VALID` Intermediate CA. Explicit selection of the old `SUPERSEDED` CA cannot create additional leaves under that generation. This keeps the dependent leaf set stable during handover. Certificates under unrelated CAs or a different generation do not change state.
-
-### Start time and deadline
-
-The CA transition records `superseded_at` as the UTC time when the replacement CA and handover state commit. Its fixed deadline is:
-
-```text
-handover_deadline = old_intermediate.superseded_at + 7 * 86400
+```sh
+abpki-cli renew <intermediate-fingerprint> --pass
 ```
 
-This timestamp is persisted and is not reset by restart, repeated maintenance, a leaf renewal, or a failed download. Seven days is the maximum waiting period for download completion, not an extension of any certificate's signed validity. Each old CA/leaf remains usable only while its own validity interval also permits it. A late start cannot extend the old CA's `not_after`.
+The CLI prompts for the installation administrator password, or accepts an explicit `--pass PASSWORD`. The password travels in the Unix socket credential field and over management TLS. The command changes VALID to SUPERSEDED and records `superseded_at`; it does not issue a new CA. Repeated requests retain the original transition time. Root, expired, and not-yet-valid targets are rejected; REVOKED returns result 409.
 
-At `now >= handover_deadline`, outstanding downloads no longer delay revocation. Maintenance after an outage processes overdue transitions before accepting new issuance or handover work. A database or signing failure cannot be reported as completed revocation; it requires recovery and retry.
+## Operator procedure
 
-### Leaf and CA transitions
+1. Inspect the current generations with `abpki-cli list-ca`. Use `abpki-cli list-ca all` to include old generations and `abpki-cli list-ca renew` to show SUPERSEDED generations.
+2. For an early transition, run `abpki-cli renew <intermediate-fingerprint> --pass` and enter the administrator password. Select the exact CA fingerprint, since old and new generations share a CN.
+3. A successful response reports `renewed: false`, `status: "SUPERSEDED"`, the old fingerprint, and its transition and retirement timestamps. It does not contain a replacement CA or a download token. For a CA, `revoke_at - superseded_at` is 4147200 seconds, or 48 days.
+4. `abpkid` creates the replacement during its internal renewal run. These runs occur hourly; the ADMIN command does not synchronously perform this step. Inspect `list-ca` for the new VALID generation and `info <new-intermediate-fingerprint>` for its signed validity.
+5. Leaf holders obtain their replacements with ordinary `renew`. They download and deploy the new leaf, matching key, and trust chain using the [leaf renewal procedure](LEAF-RENEW.md#user-procedure).
 
-| Event | Old leaf | Old Intermediate CA | Replacement |
+Automatic renewal follows the same server-managed process without step 2 when 48 days remain. Administrators do not have to issue each replacement leaf manually. The PKI server handles its own TLS certificate internally; other applications must deploy their own replacements.
+
+## Intermediate CA renewal handover
+
+At 48 days before expiry, or following an ADMIN transition, abpkid processes the SUPERSEDED CA and creates a new VALID CA. The replacement preserves subject, CN, signing key, and the original validity duration in seconds. SQLite records the predecessor; linked generations share CRL numbering and revocation history.
+
+After CA replacement, all non-revoked leaf certificates linked to the old generation through `intermediate_leaf` become SUPERSEDED. Their first transition timestamps are retained. Leaf holders poll `renew` with their certificate tokens to obtain new VALID leaves under the new VALID CA. The PKI service replaces its own TLS leaf internally when its issuer changes.
+
+The replacement has a new fingerprint even though the CN and signing key are preserved. Existing leaf records retain their original issuer relationship; new leaves reference the replacement CA. Renewal does not rewrite existing signed certificates or require replacement of the Root CA. Use the trust chain returned with each new leaf archive when deploying it.
+
+Issuer-fingerprint CRL URLs embedded in old leaves continue to identify their issuer generation. The CA lineage shares revocation history and increasing CRL numbers across renewal. See [CRL publication](CRL.md).
+
+## Example timeline
+
+| Time | Old Intermediate CA | Old dependent leaf | Holder action |
 | --- | --- | --- | --- |
-| CA handover starts | Non-revoked leaves become `SUPERSEDED`. | Becomes `SUPERSEDED`. | New CA is `VALID`. |
-| Holder renews a leaf | Remains temporarily `SUPERSEDED`. | Remains `SUPERSEDED`. | New leaf is issued by the new CA as `VALID`. |
-| New leaf download is confirmed | Corresponding old leaf becomes `REVOKED`. | Waits for remaining leaves. | New leaf and new CA remain `VALID`. |
-| Every dependent leaf is retired | All old dependent leaves are `REVOKED`. | Becomes `REVOKED` without waiting for day seven. | New hierarchy remains `VALID`. |
-| Seven-day deadline is reached | Every remaining non-revoked old leaf becomes `REVOKED`, including leaves whose holders never downloaded replacements. | Becomes `REVOKED`. | Already issued replacement certificates remain independent. |
+| T: CA enters renewal | SUPERSEDED; its 48-day retirement period starts. | Unchanged until CA replacement. | Continue periodic renewal polling. |
+| R: server issues the replacement CA | Remains SUPERSEDED; replacement CA is VALID. | Becomes SUPERSEDED; its seven-day period starts unless it was already pending. | Renew, download, and deploy the replacement leaf. |
+| R + 7 days | Still SUPERSEDED unless its own deadline or signed expiration has arrived. | Forcibly revoked even if never renewed or downloaded. | The application must already use its replacement. |
+| T + 48 days | Forcibly revoked without inspecting leaf completion. | No extension is granted to old leaves. | Use the replacement generation. |
 
-An administrator's independent revocation also retires that leaf for the CA completion condition. A CA with no non-revoked dependent leaves does not need to wait for a download. No Root or Intermediate CA private key is downloaded as part of this handover; the leaf archive supplies its new trust chain.
+If a leaf was already SUPERSEDED before R, its earlier transition time remains in effect. The CA's 48-day period does not give leaf holders 48 days: each old leaf always has its own seven-day retirement period, limited further by its signed expiration.
 
-During the waiting period, failed or interrupted downloads leave the old leaf temporarily usable within its existing validity. At the deadline, lack of replacement deployment does not extend the waiting period. A holder that has not obtained a usable replacement can lose service access.
+## Retirement deadlines
 
-### Processing and persistence
+| Certificate | Fixed retirement deadline |
+| --- | --- |
+| Old Intermediate CA | `superseded_at + 48 * 86400` |
+| Old leaf | `superseded_at + 7 * 86400` |
 
-1. Within the CA renewal transaction, create the replacement CA with its numeric predecessor reference, mark the old CA and non-revoked dependent leaves `SUPERSEDED`, and record the original CA transition time. Write the CA artifacts directly to WORM and queue the CA renewal audit event.
-2. Leaf holders request renewal with their existing token. Resolve the replacement CA and issue a leaf whose `previous_certificate_idx` points to the exact old leaf. Existing leaf validity bounds still apply. Because a leaf cannot outlive its old issuer, an unexpired leaf is already within its final seven days when its issuer enters scheduled renewal.
-3. On authenticated replacement download confirmation, revoke the old leaf and refresh the applicable leaf CRLs. In the same serialized state evaluation, query `intermediate_leaf` for the old CA and check whether any linked leaf remains non-revoked.
-4. If none remain, revoke the old CA. Otherwise retain it until the fixed deadline.
-5. At the deadline, revoke remaining old leaves and the old CA, refresh applicable CRLs, and queue revocation audit events. Preserve certificates, keys, and WORM history; revocation is not deletion.
+CA retirement does not inspect leaf renewal or download completion, does not happen early when leaves finish, and is never extended by unfinished leaves. Leaf retirement always uses seven days. Existing signed expiration is never extended. A replacement and its predecessor have independent records; only the old generation enters retirement.
 
-Confirmation and deadline processing must be idempotent and serialized through SQLite transactions. A confirmation arriving after forced retirement cannot restore an old certificate to `VALID`. A late confirmation for an already issued replacement can succeed without duplicating the old certificate's revocation event. Requesting a new renewal against a forcibly revoked old leaf remains prohibited.
-
-The server's own TLS leaf also participates if issued by the retiring CA. Its internal replacement installation needs an explicit completion path; it cannot depend on a human running `abpki-cli download`. The current runtime does not connect that installation to CA handover accounting.
+Revocation commits before CRL publication and audit delivery. Root-signed CRLs contain retired Intermediate CAs; Intermediate-signed CRLs contain revoked leaves. PEM artifacts remain on WORM, with paths and metadata in SQLite.
 
 ```mermaid
 flowchart TD
-    A[Commit new CA as VALID] --> B[Old CA and dependent leaves become SUPERSEDED]
-    B --> C[Persist transition time and seven-day deadline]
-    C --> D{Deadline reached?}
-    D -->|No| E[Process leaf replacement download confirmations]
-    E --> F[Revoke each confirmed predecessor leaf]
-    F --> G{Any non-revoked old leaves remain?}
-    G -->|Yes| D
-    G -->|No| H[Revoke old Intermediate CA]
-    D -->|Yes| I[Revoke all remaining old leaves]
-    I --> H
-    H --> J[Publish issuer-appropriate CRLs and queue audit events]
+    Valid[VALID Intermediate CA] -->|48 days remain or ADMIN transition| Old[SUPERSEDED old CA]
+    Old -->|abpkid renewal| New[New VALID CA]
+    New --> Leaves[Old CA leaves become SUPERSEDED]
+    Leaves -->|User renew| Replacements[New VALID leaves under new CA]
+    Leaves -->|7 days after each leaf transition| RevokeLeaves[Revoke old leaves]
+    Old -->|48 days after CA transition| RevokeCA[Revoke old CA]
 ```
-
-### Revocation publication
-
-Leaf revocations appear in the Intermediate CA's signed CRLs. Revocation of the Intermediate CA itself belongs in a CRL signed by its Root CA. The existing leaf CRL endpoint and OCSP responder do not implement Root-issued CA revocation distribution. Root CRL generation, distribution, and the Intermediate certificate's revocation-information extension are required to make this retirement visible to external validators.
-
-Changing `valid` in SQLite alone does not make external validators reject an old CA. Existing CA renewal preserves the subject and signing key, so validators can sometimes construct a path using another CA generation. Explicitly revoking the old leaves, including outstanding ones at the deadline, is necessary; relying only on revoking the old CA certificate does not express that leaf policy.
-
-CRL refresh and publication do not invalidate already cached CRLs immediately. Validators apply their normal freshness and revocation checking rules. The seven-day handover deadline is independent of the fixed seven-day CRL validity period.
-
-[Certificate lifecycle state](DDL.md#certificate-lifecycle-state) · [Leaf handover](LEAF-RENEW.md#download-completion-and-automatic-revocation) · [Result codes](ERROR.md)

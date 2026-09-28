@@ -38,15 +38,25 @@ fn run() -> Result<()> {
             client::credentials::prompt()?
         });
     }
+    let admin_renewal = command == "renew" && admin.is_some();
+    if admin.is_some() && !matches!(command.as_str(), "revoke" | "renew" | "create-ca") {
+        return Err("--pass is only supported by administrator operations".into());
+    }
     if matches!(command.as_str(), "create-ca" | "revoke") && admin.is_none() {
         return Err("--pass is required for this command".into());
     }
 
-    if matches!(command.as_str(), "list" | "list-ca") && args.is_empty() {
+    if matches!(command.as_str(), "list" | "list-ca") {
+        let filter = match args.as_slice() {
+            [] => autobricks_pki::storage::listing::ListFilter::Valid,
+            [value] => autobricks_pki::storage::listing::ListFilter::parse(value)?,
+            _ => return Err("invalid list arguments; see list --help".into()),
+        };
         let socket = env::var("ABPKI_SOCKET").unwrap_or_else(|_| client::daemon::SOCKET.into());
         return client::listing::print_all(
             std::path::Path::new(&socket),
             &command,
+            filter,
             &mut std::io::stdout().lock(),
         );
     }
@@ -62,7 +72,6 @@ fn run() -> Result<()> {
             output = Some("trust-chain".to_owned());
             format!("/api/chain/{}", client::segment(&args[0])?)
         }
-        "list-ca" | "list" if args.is_empty() => format!("/api/{command}"),
         "check" | "info" if args.len() == 1 => {
             format!("/api/{command}/{}", client::segment(&args[0])?)
         }
@@ -81,11 +90,15 @@ fn run() -> Result<()> {
         "revoke" | "renew" if args.len() == 1 => {
             method = "POST";
             body = serde_json::to_vec(&serde_json::json!({"fingerprint":args[0]}))?;
-            format!("/api/{command}")
+            if admin_renewal {
+                "/api/renew-admin".to_owned()
+            } else {
+                format!("/api/{command}")
+            }
         }
         _ => return Err("invalid command or arguments; see --help".into()),
     };
-    let credential = if command == "revoke" {
+    let credential = if command == "revoke" || admin_renewal {
         admin
     } else if matches!(command.as_str(), "download" | "renew") {
         Some(client::credentials::load(&args[0])?)
@@ -103,9 +116,10 @@ fn run() -> Result<()> {
             body,
         },
     )?;
-    if matches!(command.as_str(), "create" | "renew")
-        && let Err(error) = client::credentials::save_response(&response)
-    {
+    let save_token = command == "create"
+        || (command == "renew"
+            && serde_json::from_slice::<serde_json::Value>(&response)?["renewed"] == true);
+    if save_token && let Err(error) = client::credentials::save_response(&response) {
         // Preserve the successful issuance response for credential recovery.
         std::io::stdout().write_all(&response)?;
         return Err(format!("certificate issued but local credential save failed: {error}").into());
