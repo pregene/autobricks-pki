@@ -39,14 +39,14 @@ sequenceDiagram
     participant Log as TrueLog
     Admin->>Local: Socket revoke request with fingerprint and password
     Local->>PKI: Forward operation and credential through TLS
-    PKI->>DB: Verify password; begin transaction
+    PKI->>DB: Verify password#59; begin transaction
     PKI->>DB: Find leaf and check revocation state
     alt First revocation
         PKI->>DB: Set revoked_at
         PKI->>DB: Queue CRL publication and audit entry
     end
     PKI->>DB: Commit
-    PKI->>PKI: Attempt CRL publication; retain failed work for retry
+    PKI->>PKI: Attempt CRL publication#59; retain failed work for retry
     PKI->>Log: Background worker submits audit event
     PKI-->>Local: REVOKED
     Local-->>Admin: Result through Unix socket
