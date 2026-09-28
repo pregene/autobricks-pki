@@ -60,3 +60,26 @@ PYTHONDONTWRITEBYTECODE=1 python3 tests/package_setup.py
 ```
 
 Release builds and the panic gate use `scripts/build/distribution.sh` to stage distribution OpenSSL headers together with their multiarch configuration headers. This avoids mixing `/usr/local` OpenSSL headers with distribution shared libraries. The temporary header tree is removed after the command.
+
+## Docker package matrix
+
+The Docker build produces server-plus-client and client-only packages for each platform:
+
+| Ubuntu | Architecture | Packages |
+| --- | --- | --- |
+| 22.04 | amd64 | Server plus client; client only |
+| 22.04 | arm64 | Server plus client; client only |
+| 24.04 | amd64 | Server plus client; client only |
+| 24.04 | arm64 | Server plus client; client only |
+
+Use Docker Engine on an amd64 host. Both architectures build in temporary amd64 Ubuntu containers. ARM64 uses the GNU AArch64 cross compiler and Rust target libraries. The invoking account must have access to Docker.
+
+```sh
+./scripts/build/run.sh ./scripts/package/docker/build.sh
+```
+
+One invocation allocates one product version for the complete eight-package matrix. Each target uses its Ubuntu distribution's OpenSSL headers and shared libraries with Rust 1.98.1 and locked Cargo dependencies. Container builds do not increment the version individually or replace installed host services.
+
+Each package is extracted to verify its name, version, architecture, binary contents, and required libraries. amd64 executables run version/help checks. ARM64 binaries receive ELF architecture, interpreter, and target-library checks; runtime verification requires an ARM64 machine. These checks do not run package installation hooks or verify systemd and DNS/TrueLog integration inside containers.
+
+Packages are copied to `build/` only after all four targets succeed. `build/SHA256SUMS-VERSION.txt` covers all eight files. Temporary containers, toolchains, and compilation output are removed after each target; no build images are created.

@@ -1,8 +1,12 @@
 # Development history
 
+## 1.0.117 — 2026-09-28
+
+- Added Docker builds for Ubuntu 22.04 and 24.04 on amd64 and arm64, producing eight server/client package artifacts with native executable and cross-target ELF checks and SHA-256 checksums.
+
 ## 1.0.114 — 2026-09-28
 
-- Updated the development status to TEATABLE and added SQLCipher integration to the version 1.2 roadmap.
+- Updated the development status to TESTABLE and added SQLCipher integration to the version 1.2 roadmap.
 
 - Expanded leaf and Intermediate CA renewal guides with user and administrator procedures, response fields, deployment steps, retry handling, duration examples, and retirement timelines.
 

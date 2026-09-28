@@ -28,7 +28,8 @@ print(values['ID'], values['VERSION_ID'])
 PLATFORM
 )
 [[ $package_os =~ ^[a-z0-9]+$ && $package_os_version =~ ^[A-Za-z0-9.-]+$ ]] || exit 2
-package_arch=$(dpkg --print-architecture)
+package_arch=${ABPKI_DEB_ARCH:-$(dpkg --print-architecture)}
+case "$package_arch" in amd64|arm64) ;; *) echo 'Unsupported package architecture' >&2; exit 2 ;; esac
 staging=$(mktemp -d "$PWD/build/package.XXXXXX")
 trap 'rm -rf -- "$staging"' EXIT
 for kind in server client; do
@@ -73,7 +74,7 @@ POSTRM
     chmod 0755 "$stage/DEBIAN/postrm"
     install -d "$stage/debian"
     printf 'Source: %s\nSection: admin\nPriority: optional\nMaintainer: Autobricks, Co. <development@autobricks.invalid>\n\nPackage: %s\nArchitecture: any\nDescription: Autobricks PKI\n' "$package_name" "$package_name" > "$stage/debian/control"
-    libraries=$(cd "$stage" && dpkg-shlibdeps -O "${binary_args[@]}")
+    libraries=$(cd "$stage" && DEB_HOST_ARCH="$package_arch" dpkg-shlibdeps -O "${binary_args[@]}")
     libraries=${libraries#shlibs:Depends=}
     rm -rf "$stage/debian"
     cat > "$stage/DEBIAN/control" <<CONTROL
