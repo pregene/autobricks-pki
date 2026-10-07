@@ -1,5 +1,12 @@
 # Development history
 
+## 1.0.127 — 2026-10-07
+
+- Updated shared client guides with platform-specific service, configuration, trust and file locations; added macOS command examples and clarified first-use Root trust verification.
+
+- Added macOS arm64/x86_64 client support with local Unix socket communication, launchd service management, macOS native certificate trust, and terminal installation/removal scripts. The server remains Linux-only.
+- Built both client-only installation archives without changing VERSION. Verified Mach-O architecture, embedded version, macOS 11.0 deployment metadata, system library dependencies, archive contents, launchd configuration and SHA-256 checksums. The Linux client also compiled with the default server feature. macOS installation/runtime and the regression suite were not executed.
+
 ## 1.0.127 — 2026-09-28
 
 - Separated package-building instructions from installation guidance and aligned certificate, storage and error guides with available functionality. Preserved certificate field names and JSON examples; checked 144 local links, nine JSON blocks and all 18 remaining Mermaid diagrams.

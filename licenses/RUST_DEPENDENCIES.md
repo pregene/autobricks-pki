@@ -1,6 +1,6 @@
 # Rust dependency licenses
 
-The Linux dependency graph is fixed by `Cargo.lock`. License expressions below come from the resolved package manifests. Retained upstream legal files preserve their original text.
+The Linux and macOS dependency graphs are fixed by `Cargo.lock`. License expressions below come from the resolved package manifests. Retained upstream legal files preserve their original text.
 
 | Package | Version | Declared license | Retained legal files |
 | --- | --- | --- | --- |
@@ -93,3 +93,13 @@ The Linux dependency graph is fixed by `Cargo.lock`. License expressions below c
 | zerovec-derive | 0.11.6 | Unicode-3.0 | [LICENSE](rust/zerovec-derive-0.11.6/LICENSE) |
 | zlib-rs | 0.6.8 | Zlib | [LICENSE](rust/zlib-rs-0.6.8/LICENSE) |
 | zmij | 1.0.23 | MIT | [LICENSE-MIT](rust/zmij-1.0.23/LICENSE-MIT) |
+
+## macOS client dependencies
+
+| Package | Version | Declared license | Retained legal files |
+| --- | --- | --- | --- |
+| rustls-native-certs | 0.8.4 | Apache-2.0 OR ISC OR MIT | [LICENSE-MIT](rust/rustls-native-certs-0.8.4/LICENSE-MIT), [LICENSE-APACHE](rust/rustls-native-certs-0.8.4/LICENSE-APACHE), [LICENSE-ISC](rust/rustls-native-certs-0.8.4/LICENSE-ISC), [LICENSE](rust/rustls-native-certs-0.8.4/LICENSE) |
+| core-foundation | 0.10.1 | MIT OR Apache-2.0 | [LICENSE-MIT](rust/core-foundation-0.10.1/LICENSE-MIT), [LICENSE-APACHE](rust/core-foundation-0.10.1/LICENSE-APACHE) |
+| core-foundation-sys | 0.8.7 | MIT OR Apache-2.0 | [LICENSE-MIT](rust/core-foundation-sys-0.8.7/LICENSE-MIT), [LICENSE-APACHE](rust/core-foundation-sys-0.8.7/LICENSE-APACHE) |
+| security-framework | 3.7.0 | MIT OR Apache-2.0 | [LICENSE-MIT](rust/security-framework-3.7.0/LICENSE-MIT), [LICENSE-APACHE](rust/security-framework-3.7.0/LICENSE-APACHE) |
+| security-framework-sys | 2.17.0 | MIT OR Apache-2.0 | [LICENSE-MIT](rust/security-framework-sys-2.17.0/LICENSE-MIT), [LICENSE-APACHE](rust/security-framework-sys-2.17.0/LICENSE-APACHE) |

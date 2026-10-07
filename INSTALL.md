@@ -9,6 +9,8 @@ Autobricks PKI Server 1.0 provides two Linux Debian packages with curses install
 
 The packages are mutually exclusive because both own the client files. The server package includes the client without requiring the client-only package.
 
+For macOS arm64/x86_64 client-only archives, use the [macOS installation guide](docs/macos-client.md). The instructions below apply to Linux Debian packages.
+
 ## Prerequisites
 
 The server host requires Autobricks DNS, Autobricks TrueLog, and the TrueLog client. Their services must be active. TrueLog must mount `/mnt/worm-storage` with retention of at least 365 days. The installer grants the server account access to DNS, TrueLog client, and WORM writer groups.

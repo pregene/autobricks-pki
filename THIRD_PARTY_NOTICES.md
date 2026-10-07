@@ -4,13 +4,13 @@
 
 `abpkid` uses SQLite as its database.
 
-Version 1.0 uses rustls for TLS, OpenSSL for software cryptography, and rusqlite with bundled SQLite for storage. [Rust dependency licenses](licenses/RUST_DEPENDENCIES.md) lists the resolved Linux dependencies and retained legal texts. The HTTP response writer and TLS configuration retain the applicable [MIT permission notice](licenses/HTTPS-MIT.txt). Debian package builds link distribution-managed OpenSSL 3 on Ubuntu 22.04; its [distribution copyright notice](licenses/OpenSSL-3-Ubuntu-copyright.txt) and [Apache-2.0 license](licenses/OpenSSL-3-APACHE-2.0.txt) are retained. The [OpenSSL 1.1.1w license](licenses/OpenSSL-1.1.1w-LICENSE.txt) covers builds using that version. Other build environments must preserve the terms for their actual OpenSSL version.
+The version 1.0 server uses rustls for TLS, OpenSSL for software cryptography, and rusqlite with bundled SQLite for storage. The macOS client uses rustls and native macOS certificate trust without linking OpenSSL or SQLite. [Rust dependency licenses](licenses/RUST_DEPENDENCIES.md) lists the resolved Linux and macOS dependencies and retained legal texts. The HTTP response writer and TLS configuration retain the applicable [MIT permission notice](licenses/HTTPS-MIT.txt). Debian package builds link distribution-managed OpenSSL 3 on Ubuntu 22.04; its [distribution copyright notice](licenses/OpenSSL-3-Ubuntu-copyright.txt) and [Apache-2.0 license](licenses/OpenSSL-3-APACHE-2.0.txt) are retained. The [OpenSSL 1.1.1w license](licenses/OpenSSL-1.1.1w-LICENSE.txt) covers builds using that version. Other build environments must preserve the terms for their actual OpenSSL version.
 
 SoftHSM2, tpm2-pkcs11, and tpm2-tss notices below are retained reference material; these components are not linked or required by the version 1.0 binaries.
 
 The versions below identify the releases covered by the retained license texts. SQLite is covered by its upstream public-domain statement. The component table identifies the retained upstream legal references.
 
-| Component | Reviewed version | Retained license text | Source |
+| Component | Covered version | Retained license text | Source |
 | --- | --- | --- | --- |
 | SoftHSM2 | 2.7.0 | [SoftHSM2-2.7.0-LICENSE.txt](licenses/SoftHSM2-2.7.0-LICENSE.txt) | [Upstream license](https://github.com/softhsm/SoftHSMv2/blob/2.7.0/LICENSE) |
 | tpm2-pkcs11 | 1.10.1 | [tpm2-pkcs11-1.10.1-LICENSE.txt](licenses/tpm2-pkcs11-1.10.1-LICENSE.txt) | [Upstream license](https://github.com/tpm2-software/tpm2-pkcs11/blob/1.10.1/LICENSE) |

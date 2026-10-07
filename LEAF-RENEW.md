@@ -4,7 +4,7 @@
 
 ## Before starting
 
-Use the installed `abpki-cli` from the Linux account that created or previously renewed the certificate. Installation configures the server connection and trust. The CLI reads the certificate's access token from `~/.abpki/<fingerprint>` and passes it through the local client service. Normal renewal does not require the ADMIN password.
+Use the installed `abpki-cli` from the operating-system account that created or previously renewed the certificate. Installation configures the server connection and trust. The CLI reads the certificate's access token from `~/.abpki/<fingerprint>` and passes it through the local client service. Normal renewal does not require the ADMIN password.
 
 A fingerprint identifies one certificate generation. Renewal keeps the Common Name but produces a different fingerprint. Replace the angle-bracket placeholders in the commands below with the actual fingerprint; fingerprints are contiguous hexadecimal strings.
 

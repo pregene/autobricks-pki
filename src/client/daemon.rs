@@ -17,8 +17,14 @@ use std::{
     time::Duration,
 };
 
+#[cfg(not(target_os = "macos"))]
 pub const SOCKET: &str = "/run/autobricks-pki-client/client.sock";
+#[cfg(not(target_os = "macos"))]
 pub const CONFIG: &str = "/etc/autobricks-pki-client/client.json";
+#[cfg(target_os = "macos")]
+pub const SOCKET: &str = super::macos::SOCKET;
+#[cfg(target_os = "macos")]
+pub const CONFIG: &str = super::macos::CONFIG;
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -39,7 +45,7 @@ impl Config {
             self.server.clone()
         };
         let origin = format!("https://{host}:{}", self.port);
-        crate::certificate::profile::Distribution::new(&origin)?;
+        super::origin::Distribution::new(&origin)?;
         Ok(origin)
     }
 }
@@ -58,9 +64,13 @@ pub fn serve(config_path: &Path) -> Result<()> {
     let config: Config = serde_json::from_slice(&fs::read(config_path)?)?;
     let origin = config.origin()?;
     // Load the OS trust bundle once at service startup; never disable TLS verification.
-    let trust = fs::read(&config.ca)?;
-    let tls = crate::transport::tls::client(&trust)?;
+    #[cfg(not(target_os = "macos"))]
+    let tls = crate::transport::tls::client(&fs::read(&config.ca)?)?;
+    #[cfg(target_os = "macos")]
+    let tls = super::macos::tls_config()?;
     let path = Path::new(&config.unix_socket);
+    #[cfg(target_os = "macos")]
+    super::macos::prepare_socket(path)?;
     if let Ok(metadata) = fs::symlink_metadata(path) {
         if !metadata.file_type().is_socket() {
             return Err("client socket path is not a socket".into());

@@ -1,6 +1,10 @@
 pub mod credentials;
 pub mod daemon;
 pub mod listing;
+#[cfg(target_os = "macos")]
+pub mod macos;
+pub mod models;
+pub mod origin;
 use crate::{Result, transport::tls};
 use std::{
     io::{Read, Write},
@@ -27,7 +31,7 @@ pub(crate) fn request_with_config(
     body: &[u8],
     token: Option<&str>,
 ) -> Result<Vec<u8>> {
-    crate::certificate::profile::Distribution::new(origin)?;
+    origin::Distribution::new(origin)?;
     if path.bytes().any(|b| b < 32 || b == 127)
         || token.is_some_and(|v| v.bytes().any(|b| b < 32 || b == 127))
     {
@@ -176,6 +180,6 @@ pub fn public_origin(management_origin: &str, port: u16) -> Result<String> {
         url = url::Url::parse(&management_origin.replacen("tls://", "https://", 1))?;
     }
     url.set_port(Some(port)).map_err(|_| "invalid HTTPS port")?;
-    crate::certificate::profile::Distribution::new(url.as_str())?;
+    origin::Distribution::new(url.as_str())?;
     Ok(url.into())
 }

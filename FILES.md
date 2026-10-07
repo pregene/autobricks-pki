@@ -153,7 +153,7 @@ flowchart TD
 
 [Runtime configuration](docs/runtime.md) · [Storage](docs/storage.md) · [Key storage](docs/key-storage.md)
 
-## Installed client files
+## Installed Linux client files
 
 | Path | Purpose and permissions |
 | --- | --- |
@@ -163,3 +163,17 @@ flowchart TD
 | `/run/autobricks-pki-client/client.sock` | Local request socket; mode `0660`, client group and installer UID access |
 | `~/.abpki/<fingerprint>` | Caller-owned certificate token; mode `0600` under a `0700` directory |
 | `/lib/systemd/system/abpki-cli.service` | Local client service included in both packages |
+
+## Installed macOS client files
+
+| Path | Purpose and permissions |
+| --- | --- |
+| `/usr/local/bin/abpki-cli` | Client executable; root-owned, mode `0755` |
+| `/Library/LaunchDaemons/com.autobricks.pki.client.plist` | launchd service; root-owned, mode `0644` |
+| `/Library/Application Support/Autobricks PKI/client.json` | Client connection settings; root-owned, mode `0600` |
+| `/Library/Application Support/Autobricks PKI/root.crt` | Enrolled public Root certificate; root-owned, mode `0644` |
+| `/var/run/autobricks-pki-client/client.sock` | Local request socket; mode `0660`, root owner and `staff` group |
+| `/var/log/autobricks-pki-client.log` | Client service output and errors; root-owned, mode `0600` |
+| `~/.abpki/<fingerprint>` | Caller-owned certificate token; mode `0600` under a `0700` directory |
+
+The launchd service runs as root with the `staff` group. Installation enrolls the Root in the System keychain; the daemon loads native macOS trust. The service recreates its protected runtime socket directory after a reboot. See [macOS installation and removal](docs/macos-client.md).

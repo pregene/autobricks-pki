@@ -64,9 +64,11 @@ The local PKI client service owns remote connections. Users invoke `abpki-cli` c
 
 ### Installation settings
 
-Client installation collects the PKI server IP address or DNS name and management TLS port, downloads the Root CA from the configured public HTTPS endpoint, registers it in the OS trust store, and writes `/etc/autobricks-pki-client/client.json`. It starts the local client service after configuration succeeds. The remote endpoint is explicit; the CLI does not guess an address from the certificate request.
+Linux client installation collects the PKI server IP address or DNS name and management TLS port, downloads the Root CA from the configured public HTTPS endpoint, registers it in the OS trust store, and writes `/etc/autobricks-pki-client/client.json`. It starts the local client service after configuration succeeds. The remote endpoint is explicit; the CLI does not guess an address from the certificate request.
 
-The connection section has this form:
+macOS clients use launchd, `/Library/Application Support/Autobricks PKI/client.json`, `/var/run/autobricks-pki-client/client.sock`, and native macOS certificate trust. See [macOS client installation and usage](macos-client.md). The local request and remote TLS protocols are shared across platforms.
+
+The Linux connection section has this form:
 
 ```json
 {
@@ -114,7 +116,7 @@ Tokens are stored at `~/.abpki/<fingerprint>` in the invoking user's mode-0700 d
 | `abpki-cli` | Parse command arguments or request JSON, call the local socket, print results, and save downloaded files. |
 | `abpkid` | Validate certificate operation inputs and enforce administrator/token authorization. |
 
-The command and daemon share `abpki-cli`; `abpki-cli.service` invokes `daemon --config /etc/autobricks-pki-client/client.json`. `abpki-client` denotes the local client service; its executable is `abpki-cli`.
+The command and daemon share `abpki-cli`; on Linux, `abpki-cli.service` invokes `daemon --config /etc/autobricks-pki-client/client.json`. `abpki-client` denotes the local client service; its executable is `abpki-cli`.
 
 ```text
 Installation:
@@ -147,7 +149,7 @@ sequenceDiagram
 
 Each management connection carries one request and response. Lost responses to state-changing requests are not automatically replayed; an operation may already have completed.
 
-The daemon owns TLS connections and loads the OS trust bundle. CLI commands use the installed socket; `ABPKI_SOCKET` selects an alternate local client socket. `ABPKI_SERVER`, `ABPKI_TRUST_FILE`, and `ABPKI_ACCESS_TOKEN` are not per-command connection or credential inputs.
+The daemon owns TLS connections and loads the Linux OS trust bundle or macOS native trust. CLI commands use the installed socket; `ABPKI_SOCKET` selects an alternate local client socket. `ABPKI_SERVER`, `ABPKI_TRUST_FILE`, and `ABPKI_ACCESS_TOKEN` are not per-command connection or credential inputs.
 
 ## Certificate creation
 

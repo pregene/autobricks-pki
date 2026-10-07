@@ -2,8 +2,11 @@ use std::{env, fs};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=VERSION");
     println!("cargo:rerun-if-env-changed=AUTOBRICKS_PKI_VERSION");
-    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("linux") {
-        return Err("Linux only".into());
+    let target_os = env::var("CARGO_CFG_TARGET_OS")?;
+    if target_os != "linux"
+        && (target_os != "macos" || env::var_os("CARGO_FEATURE_SERVER").is_some())
+    {
+        return Err("The server requires Linux; client-only builds support Linux and macOS".into());
     }
     let version = fs::read_to_string("VERSION")?;
     let version = version.trim();

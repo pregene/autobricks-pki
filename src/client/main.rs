@@ -17,6 +17,10 @@ fn run() -> Result<()> {
         return Ok(());
     }
     let command = args.remove(0);
+    #[cfg(target_os = "macos")]
+    if command == "configure" {
+        return client::macos::configure(&args);
+    }
     if command == "create-ca" {
         return Err(
             "Not implemented: additional Intermediate CA creation is unavailable in version 1.0"
@@ -48,8 +52,8 @@ fn run() -> Result<()> {
 
     if matches!(command.as_str(), "list" | "list-ca") {
         let filter = match args.as_slice() {
-            [] => autobricks_pki::storage::listing::ListFilter::Valid,
-            [value] => autobricks_pki::storage::listing::ListFilter::parse(value)?,
+            [] => autobricks_pki::client::models::ListFilter::Valid,
+            [value] => autobricks_pki::client::models::ListFilter::parse(value)?,
             _ => return Err("invalid list arguments; see list --help".into()),
         };
         let socket = env::var("ABPKI_SOCKET").unwrap_or_else(|_| client::daemon::SOCKET.into());

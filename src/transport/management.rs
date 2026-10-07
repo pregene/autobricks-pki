@@ -1,6 +1,5 @@
 use crate::{
     Result,
-    server::routes::Response,
     transport::request::{MAX_BODY, Request},
 };
 use serde::{Deserialize, Serialize};
@@ -49,8 +48,9 @@ pub struct Reply {
     #[serde(default)]
     pub body: Vec<u8>,
 }
-impl From<Response> for Reply {
-    fn from(response: Response) -> Self {
+#[cfg(feature = "server")]
+impl From<crate::server::routes::Response> for Reply {
+    fn from(response: crate::server::routes::Response) -> Self {
         Self {
             status: response.status.into(),
             content_type: response.content_type.into(),

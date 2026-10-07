@@ -2,6 +2,8 @@
 
 Autobricks PKI Server 1.0 builds on Linux and provides `abpkid` and `abpki-cli`. Run commands from the repository root.
 
+Client-only builds also support macOS arm64/x86_64; see [macOS client packages](macos-client.md#building-packages).
+
 ## Prerequisites
 
 Install Bash, Python 3, `flock`, a Rust toolchain supporting edition 2024, a C compiler, `pkg-config`, `dpkg-dev`, and distribution OpenSSL development libraries. Regression checks also require the OpenSSL command-line client.

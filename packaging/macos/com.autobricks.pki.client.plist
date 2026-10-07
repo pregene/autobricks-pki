@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.autobricks.pki.client</string>
+  <key>ProgramArguments</key><array>
+    <string>/usr/local/bin/abpki-cli</string><string>daemon</string><string>--config</string>
+    <string>/Library/Application Support/Autobricks PKI/client.json</string>
+  </array>
+  <key>UserName</key><string>root</string>
+  <key>GroupName</key><string>staff</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>Umask</key><integer>23</integer>
+  <key>StandardOutPath</key><string>/var/log/autobricks-pki-client.log</string>
+  <key>StandardErrorPath</key><string>/var/log/autobricks-pki-client.log</string>
+</dict></plist>

@@ -6,7 +6,7 @@ Issued certificate and encrypted-key files reside on WORM. The service retains t
 
 ## Request interface
 
-`abpki-cli create --help` displays a JSON example directly. To use `abpki-cli create < request.json`, save the JSON object below as `request.json` and edit its issuer, CN, IP, and access policies. The installed field reference is `/usr/share/doc/autobricks-pki/LEAF-CREATE.md`.
+`abpki-cli create --help` displays a JSON example directly. To use `abpki-cli create < request.json`, save the JSON object below as `request.json` and edit its issuer, CN, IP, and access policies. On Linux, the installed field reference is `/usr/share/doc/autobricks-pki/LEAF-CREATE.md`. macOS clients can use this reference from the source checkout and the embedded CLI example.
 
 `abpki-cli create` reads JSON from standard input and submits it to `abpki-client` through its local Unix socket. `abpki-client` sends the `/api/create` POST operation through management TLS (default port 5545). This path is a management protocol selector, not a public HTTPS endpoint.
 

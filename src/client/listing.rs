@@ -1,4 +1,4 @@
-use crate::{Result, storage::listing::CertificateListEntry};
+use crate::{Result, client::models::CertificateListEntry};
 use std::fmt::Write;
 
 pub fn render(response: &[u8]) -> Result<String> {
@@ -52,7 +52,7 @@ fn clean(value: &str) -> String {
 pub fn print_all(
     socket: &std::path::Path,
     command: &str,
-    filter: crate::storage::listing::ListFilter,
+    filter: crate::client::models::ListFilter,
     output: &mut impl std::io::Write,
 ) -> Result<()> {
     stream_pages(
@@ -79,7 +79,7 @@ pub fn print_all(
 }
 
 pub fn stream_pages(
-    mut fetch: impl FnMut(i64, Option<i64>) -> Result<crate::storage::listing::CertificatePage>,
+    mut fetch: impl FnMut(i64, Option<i64>) -> Result<crate::client::models::CertificatePage>,
     output: &mut impl std::io::Write,
 ) -> Result<()> {
     let mut after = 0;
@@ -87,7 +87,7 @@ pub fn stream_pages(
     let mut header = true;
     loop {
         let page = fetch(after, through)?;
-        if page.entries.len() > crate::storage::listing::PAGE_SIZE
+        if page.entries.len() > crate::client::models::PAGE_SIZE
             || page.through < after
             || through.is_some_and(|upper| upper != page.through)
         {

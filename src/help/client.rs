@@ -1,12 +1,23 @@
 use super::Operation;
 
 pub(super) const OPERATIONS: &[Operation] = &[
+    #[cfg(target_os = "macos")]
+    Operation {
+        name: "configure",
+        usage: "configure SERVER TLS_PORT HTTPS_PORT",
+        description: "Verify the macOS system trust and remote listeners; print client settings.",
+        details: "Used by install.sh after Root CA enrollment. Both listeners must pass server certificate verification. The command prints JSON and does not write configuration.",
+        example: "abpki-cli configure pki.autobricks.internal 5545 5546",
+    },
     Operation {
         name: "daemon",
         usage: "daemon --config PATH",
         description: "Run the local Unix socket client service.",
-        details: "Read the installed connection settings and OS trust bundle. Invoked by systemd.",
+        details: "Read the installed connection settings and OS trust bundle. Invoked by the installed service manager.",
+        #[cfg(not(target_os = "macos"))]
         example: "abpki-cli daemon --config /etc/autobricks-pki-client/client.json",
+        #[cfg(target_os = "macos")]
+        example: "abpki-cli daemon --config '/Library/Application Support/Autobricks PKI/client.json'",
     },
     Operation {
         name: "create",

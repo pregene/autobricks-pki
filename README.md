@@ -4,11 +4,11 @@
 
 Root CA and Intermediate CA management, with purpose-specific server and client certificate issuance, renewal, and revocation for the Autobricks product family.
 
-Supported platform: **Linux only**.
+Server platform: **Linux only**. Client platforms: **Linux and macOS 11 or later (arm64/x86_64)**.
 
 Server binary: `abpkid`.
 
-Client interface: `abpki-cli` calls the local `abpki-client` service through a Unix socket. The client service connects to `abpkid` over TLS using installation-managed configuration. Both package types include `abpki-cli.service`; it reads the installed client configuration and owns the remote TLS connections.
+Client interface: `abpki-cli` calls the local `abpki-client` service through a Unix socket. The client service connects to `abpkid` over TLS using installation-managed configuration. Linux packages include `abpki-cli.service`; macOS packages use launchd. The local service reads the installed client configuration and owns the remote TLS connections. See [macOS client installation](docs/macos-client.md).
 
 ## Installation prerequisites
 

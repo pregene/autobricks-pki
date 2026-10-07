@@ -2,7 +2,7 @@
 
 `abpki-cli` submits requests to the local `abpki-client` service through a Unix domain socket. The service connects to `abpkid` over management TLS (default port 5545), using settings saved during client installation. No client certificate or client private key is used for this TLS connection.
 
-`abpki-cli.service` runs the local daemon with `/etc/autobricks-pki-client/client.json`. CLI operations use `/run/autobricks-pki-client/client.sock`; only the daemon opens remote TLS connections. Both package types include this service.
+On Linux, `abpki-cli.service` runs the local daemon with `/etc/autobricks-pki-client/client.json`. CLI operations use `/run/autobricks-pki-client/client.sock`; only the daemon opens remote TLS connections. Both Linux package types include this service. macOS uses launchd with the same CLI-to-service Unix socket flow; see [macOS client installation and usage](macos-client.md).
 
 [Executable usage and request examples](runtime.md)
 

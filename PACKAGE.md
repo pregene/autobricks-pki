@@ -65,3 +65,13 @@ sha256sum -c SHA256SUMS-<version>.txt
 Use the package matching the destination OS/version and architecture. See [installation and removal](INSTALL.md) for prerequisites, configuration inputs and installation commands.
 
 [Binary builds](docs/build.md) · [File layout](FILES.md)
+
+## macOS client packages
+
+Client-only installation archives support macOS 11 or later on arm64 and x86_64. See [macOS client installation and package builds](docs/macos-client.md).
+
+```sh
+./scripts/build/run.sh --keep-version ./scripts/package/macos.sh
+```
+
+This build keeps the current version and creates `autobricks-pki-cli-VERSION-macos-arm64.tar.gz`, `autobricks-pki-cli-VERSION-macos-x86_64.tar.gz` and `macos-SHA256SUMS` in `build/`. Each archive includes the client executable, launchd service, installation/removal scripts and license notices. It contains no server executable. Linux cross-builds require Zig, cargo-zigbuild and a macOS SDK specified by `SDKROOT`.
