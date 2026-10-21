@@ -35,5 +35,4 @@ mod lifecycle;
 mod renewal;
 
 pub mod domain;
-pub mod subject;
 pub mod validity;

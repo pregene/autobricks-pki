@@ -1,7 +1,7 @@
 use crate::{
     Result,
     authorization::password,
-    certificate::{crypto, validity::DAY},
+    certificate::validity::DAY,
     server::service::{Service, now, record},
     storage::database::Certificate,
 };
@@ -46,12 +46,13 @@ impl Service {
             let rc = X509::from_pem(root.pem.as_bytes())?;
             let rk = PKey::private_key_from_pem(root.key_pem.as_bytes())?;
             let previous = X509::from_pem(ca.pem.as_bytes())?;
-            let (cert, key) = crypto::ca_with_subject(
+            let previous_key = PKey::private_key_from_pem(ca.key_pem.as_bytes())?;
+            let (cert, key) = autobricks_certificate::dynamic::renew_ca(
                 &ca.cn,
                 Some((&rc, &rk)),
                 validity,
-                PKey::private_key_from_pem(ca.key_pem.as_bytes())?,
-                Some(previous.subject_name()),
+                &previous_key,
+                &previous,
             )?;
             let replacement = record(cert, key, "intermediate", Some(root.fingerprint), validity)?;
             self.db.insert(&replacement)?;

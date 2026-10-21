@@ -22,6 +22,9 @@ curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs -o /tmp/rustup.sh
 sh /tmp/rustup.sh -y --profile minimal --default-toolchain 1.98.1
 export PATH=/root/.cargo/bin:$PATH
 mkdir /work
+mkdir /autobricks-certificate
+cp /certificate-source/Cargo.toml /certificate-source/Cargo.lock /certificate-source/LICENSE /certificate-source/README.md /autobricks-certificate/
+cp -R /certificate-source/src /autobricks-certificate/
 cp /source/Cargo.toml /source/Cargo.lock /source/VERSION /source/LICENSE /work/
 for doc in /source/*.md; do
     [[ $(basename "$doc") == AGENTS.md ]] || cp "$doc" /work/

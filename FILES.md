@@ -22,6 +22,7 @@ Both repository directories are ignored by Git. Service installation paths are s
 | `/etc/autobricks-pki/` | Service configuration directory | Root-owned (`0750`) |
 | `/etc/autobricks-pki/abpkid.env` | Environment settings supplied to the process by systemd | Root-owned (`0600`) |
 | `/var/lib/autobricks-pki/` | Mutable PKI state directory | Owned by the autobricks-pki operating-system account (`0700`) |
+| `/usr/lib/autobricks/libautobricks_certificate.so` | Certificate-generation dynamic library loaded by `abpkid` | Server package file (`0755`) |
 | `/var/lib/autobricks-pki/abpki.sqlite` | Certificate/CRL metadata and WORM paths, revocation state, password hash, key encryption password, token hashes, and pending delivery records | Owned by the service account (`0600`) |
 | `/var/lib/autobricks-pki/install.json` | Installation domain and DNS registration IP for reconfiguration | Service account (`0600`) |
 | `/etc/autobricks-pki/account-owned` | Marks the service account as package-owned for purge | Root-owned |

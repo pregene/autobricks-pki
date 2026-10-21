@@ -1,29 +1,9 @@
 use crate::{Result, certificate::profile::LeafProfile, storage::database::Certificate};
 
-pub fn leaf(value: &str) -> Result<String> {
-    if value.is_empty() || value.len() > 24 || !label(value) {
-        return Err("leaf CN must contain 1 to 24 ASCII letters, digits, or hyphens, with no leading or trailing hyphen".into());
-    }
-    Ok(value.to_ascii_lowercase())
-}
-
-pub fn intermediate<'a>(cn: &'a str, base_domain: &str) -> Result<&'a str> {
-    let suffix = format!(".{base_domain}");
-    let name = cn.strip_suffix(&suffix).unwrap_or(cn);
-    if name.len() > 16 || !label(name) {
-        return Err("Intermediate CA name must contain 1 to 16 ASCII letters, digits, or hyphens, excluding the baseDomain suffix".into());
-    }
-    Ok(name)
-}
+pub use autobricks_certificate::common_name::{intermediate, leaf};
 
 fn label(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 63
-        && !value.starts_with('-')
-        && !value.ends_with('-')
-        && value
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    autobricks_certificate::common_name::label(value)
 }
 
 pub fn server_dns(

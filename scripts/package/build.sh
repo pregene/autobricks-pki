@@ -50,6 +50,8 @@ for kind in server client; do
     extra_dependencies=''
     binary_args=(-eusr/bin/abpki-cli)
     if [[ $kind == server ]]; then
+        install -d "$stage/usr/lib/autobricks"
+        install -m 0755 bin/libautobricks_certificate.so "$stage/usr/lib/autobricks/"
         install -m 0755 bin/abpkid "$stage/usr/bin/"
         install -m 0644 packaging/debian/install.py "$stage/usr/lib/autobricks-pki/setup/server.py"
         install -m 0644 packaging/debian/abpkid.service "$stage/lib/systemd/system/"

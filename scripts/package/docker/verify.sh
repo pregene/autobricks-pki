@@ -33,8 +33,10 @@ for name in autobricks-pki autobricks-pki-cli; do
     [[ -f "$stage/usr/bin/abpki-cli" ]]
     if [[ $name == autobricks-pki ]]; then
         [[ -f "$stage/usr/bin/abpkid" ]]
+        [[ -f "$stage/usr/lib/autobricks/libautobricks_certificate.so" ]]
     else
         [[ ! -e "$stage/usr/bin/abpkid" ]]
+        [[ ! -e "$stage/usr/lib/autobricks/libautobricks_certificate.so" ]]
     fi
     printf 'Verified %s\n' "$package"
     rm -rf -- "$stage"

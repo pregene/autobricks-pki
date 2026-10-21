@@ -67,24 +67,7 @@ impl<'de> Deserialize<'de> for StrictValue {
     }
 }
 pub fn shape(v: &Value, depth: usize) -> Result<()> {
-    if depth > 12 {
-        return Err("profile nesting exceeds limit".into());
-    }
-    match v {
-        Value::Null => return Err("omit optional fields instead of null".into()),
-        Value::Object(m) => {
-            for child in m.values() {
-                shape(child, depth + 1)?;
-            }
-        }
-        Value::Array(a) => {
-            for child in a {
-                shape(child, depth + 1)?;
-            }
-        }
-        _ => {}
-    }
-    Ok(())
+    Ok(autobricks_certificate::input::shape(v, depth)?)
 }
 pub fn create(bytes: &[u8]) -> Result<crate::server::service::Create> {
     if bytes.len() > MAX_CREATE {

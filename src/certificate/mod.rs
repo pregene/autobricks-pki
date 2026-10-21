@@ -1,8 +1,5 @@
 pub mod access;
-pub mod profile;
-pub mod purpose;
-pub mod validity;
-
+pub use autobricks_certificate::{extensions, names, profile, purpose, validity, values};
 pub mod crypto;
 
 pub mod common_name;
@@ -11,7 +8,4 @@ mod lifecycle;
 mod renewal;
 pub mod renewal_response;
 
-pub mod extensions;
 pub mod input;
-pub mod names;
-pub mod values;

@@ -2,6 +2,8 @@
 set -euo pipefail
 project_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)
 cd -- "$project_root"
+certificate_project=${AUTOBRICKS_CERTIFICATE_PROJECT:-$project_root/../autobricks-certificate}
+[[ -f "$certificate_project/Cargo.toml" ]]
 : "${AUTOBRICKS_PKI_VERSION:?Use scripts/build/run.sh scripts/package/docker/build.sh}"
 version=$AUTOBRICKS_PKI_VERSION
 [[ $(<VERSION) == "$version" ]]
@@ -20,7 +22,7 @@ for ubuntu in 22.04 24.04; do
         docker run --rm --name "$container" --platform linux/amd64 \
             -e "AUTOBRICKS_PKI_VERSION=$version" -e "ABPKI_DEB_ARCH=$arch" \
             -e "ABPKI_HOST_UID=$host_uid" -e "ABPKI_HOST_GID=$host_gid" \
-            -v "$PWD:/source:ro" -v "$stage:/output" \
+            -v "$PWD:/source:ro" -v "$certificate_project:/certificate-source:ro" -v "$stage:/output" \
             "ubuntu:$ubuntu" bash /source/scripts/package/docker/container.sh
     done
 done

@@ -2,6 +2,8 @@
 
 Autobricks PKI Server 1.0 provides Linux Debian packages built from the source checkout. Run the commands below from the repository root.
 
+The sibling `../autobricks-certificate` checkout is required. The build creates its dynamic library before compiling PKI, and the server package installs the library under `/usr/lib/autobricks/`.
+
 ## Package types
 
 | Package | Contents |

@@ -57,4 +57,15 @@ fi
 export AUTOBRICKS_PKI_VERSION
 AUTOBRICKS_PKI_VERSION=$(<VERSION)
 printf 'Building Autobricks PKI Server %s\n' "$AUTOBRICKS_PKI_VERSION"
+certificate_project=${AUTOBRICKS_CERTIFICATE_PROJECT:-$project_root/../autobricks-certificate}
+[[ -f "$certificate_project/Cargo.toml" ]] || {
+    echo "Autobricks Certificate project not found: $certificate_project" >&2
+    exit 2
+}
+certificate_profile=()
+for argument in "$@"; do
+    [[ $argument == --release ]] && certificate_profile=(--release)
+done
+cargo build --manifest-path "$certificate_project/Cargo.toml" --locked \
+    --target-dir "$project_root/target" "${certificate_profile[@]}"
 "$@"
