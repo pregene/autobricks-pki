@@ -1,6 +1,6 @@
 [package]
 name = "autobricks-pki"
-version = "1.0.0"
+version = "1.0.132"
 edition = "2024"
 publish = false
 license-file = "LICENSE"

@@ -6,7 +6,7 @@ pub(super) const OPERATIONS: &[Operation] = &[
         name: "configure",
         usage: "configure SERVER TLS_PORT HTTPS_PORT",
         description: "Verify the macOS system trust and remote listeners; print client settings.",
-        details: "Used by install.sh after Root CA enrollment. Both listeners must pass server certificate verification. The command prints JSON and does not write configuration.",
+        details: "Used by install.sh after Root CA enrollment. Both listeners must pass server certificate verification. The command prints JSON and does not write configuration. Reinstallation reads the installed client identity from the standard configuration path; ABPKI_CLIENT_CONFIG may select an isolated configuration for testing.",
         example: "abpki-cli configure pki.autobricks.internal 5545 5546",
     },
     Operation {
