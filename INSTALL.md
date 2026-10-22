@@ -17,13 +17,10 @@ The server host requires Autobricks DNS, Autobricks TrueLog, and the TrueLog cli
 
 Client-only installation requires a reachable PKI server, not a local DNS or TrueLog service. Installation requires an interactive terminal at least 80 columns by 25 rows. Noninteractive package configuration reports an error instead of assuming connection settings.
 
-## Build and install
+## Install a release
 
-```sh
-./scripts/build/run.sh ./scripts/package/build.sh
-```
-
-The build produces both `autobricks-pki-VERSION-OS-OS_VERSION-ARCH.deb` and `autobricks-pki-cli-VERSION-OS-OS_VERSION-ARCH.deb` under `build/`, and stages binaries under `bin/`. Package construction requires `dpkg-dev`, distribution `libssl-dev`, Python 3, and the Rust toolchain. Distribution OpenSSL supplies the packaged library dependencies.
+Download the package matching the destination Ubuntu release and architecture
+from the GitHub release, then verify it against the published SHA-256 manifest.
 
 Install one package, using its exact generated filename:
 

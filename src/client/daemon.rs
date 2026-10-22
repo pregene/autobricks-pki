@@ -33,11 +33,18 @@ pub struct Config {
     pub https_port: u16,
     pub unix_socket: String,
     pub ca: String,
+    #[serde(default)]
+    pub certificate: Option<String>,
+    #[serde(default)]
+    pub private_key: Option<String>,
 }
 impl Config {
     pub fn origin(&self) -> Result<String> {
         if self.port == 0 || self.https_port == 0 || self.port == self.https_port {
             return Err("invalid client connection ports".into());
+        }
+        if self.certificate.is_some() != self.private_key.is_some() {
+            return Err("client certificate and private key must be configured together".into());
         }
         let host = if self.server.parse::<std::net::Ipv6Addr>().is_ok() {
             format!("[{}]", self.server)
@@ -53,7 +60,7 @@ pub fn call(socket: &Path, message: &Message) -> Result<Vec<u8>> {
     let mut stream = UnixStream::connect(socket)?;
     stream.set_read_timeout(Some(Duration::from_secs(60)))?;
     stream.set_write_timeout(Some(Duration::from_secs(10)))?;
-    management::write_frame(&mut stream, message, crate::transport::request::MAX_BODY)?;
+    management::write_frame(&mut stream, message, management::MAX_REQUEST)?;
     let reply: Reply = management::read_frame(&mut stream, management::MAX_RESPONSE)?;
     if reply.status != "200 OK" {
         return Err(String::from_utf8_lossy(&reply.body).into_owned().into());
@@ -65,9 +72,31 @@ pub fn serve(config_path: &Path) -> Result<()> {
     let origin = config.origin()?;
     // Load the OS trust bundle once at service startup; never disable TLS verification.
     #[cfg(not(target_os = "macos"))]
-    let tls = crate::transport::tls::client(&fs::read(&config.ca)?)?;
+    let tls = {
+        let trust = fs::read(&config.ca)?;
+        let identity = match (&config.certificate, &config.private_key) {
+            (Some(certificate), Some(key)) => Some((fs::read(certificate)?, fs::read(key)?)),
+            _ => None,
+        };
+        crate::transport::tls::client_with_identity(
+            &trust,
+            identity
+                .as_ref()
+                .map(|(certificate, key)| (certificate.as_slice(), key.as_slice())),
+        )?
+    };
     #[cfg(target_os = "macos")]
-    let tls = super::macos::tls_config()?;
+    let tls = {
+        let identity = match (&config.certificate, &config.private_key) {
+            (Some(certificate), Some(key)) => Some((fs::read(certificate)?, fs::read(key)?)),
+            _ => None,
+        };
+        super::macos::tls_config_with_identity(
+            identity
+                .as_ref()
+                .map(|(certificate, key)| (certificate.as_slice(), key.as_slice())),
+        )?
+    };
     let path = Path::new(&config.unix_socket);
     #[cfg(target_os = "macos")]
     super::macos::prepare_socket(path)?;
@@ -106,14 +135,11 @@ pub fn serve(config_path: &Path) -> Result<()> {
             .name("abpki-client-relay".into())
             .spawn(move || {
                 let _guard = guard;
-                let parsed = management::read_frame_with_format::<Message>(
-                    &mut stream,
-                    crate::transport::request::MAX_BODY,
-                );
-                let (result, format) = match parsed {
-                    Ok((message, format)) => (relay(message, &config, &origin, tls), format),
-                    Err(error) => (Err(error), management::Format::Binary),
-                };
+                let result =
+                    match management::read_frame::<Message>(&mut stream, management::MAX_REQUEST) {
+                        Ok(message) => relay(message, &config, &origin, tls),
+                        Err(error) => Err(error),
+                    };
                 let reply = match result {
                     Ok(body) => Reply {
                         status: "200 OK".into(),
@@ -126,12 +152,7 @@ pub fn serve(config_path: &Path) -> Result<()> {
                         body: error.to_string().into_bytes(),
                     },
                 };
-                let _ = management::write_frame_with_format(
-                    &mut stream,
-                    &reply,
-                    management::MAX_RESPONSE,
-                    format,
-                );
+                let _ = management::write_frame(&mut stream, &reply, management::MAX_RESPONSE);
             })?;
     }
     Ok(())
@@ -152,17 +173,14 @@ fn relay(
             None,
         );
     }
-    let request = message.into_request()?;
+    message.validate()?;
     super::management_request_with_config(
         origin,
         tls,
-        &request.method,
-        &request.path,
-        &request.body,
-        request
-            .headers
-            .get("authorization")
-            .and_then(|v| v.strip_prefix("Bearer ")),
+        &message.method,
+        &message.path,
+        &message.body,
+        message.credential.as_deref(),
     )
 }
 

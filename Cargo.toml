@@ -4,7 +4,6 @@ version = "1.0.0"
 edition = "2024"
 publish = false
 license-file = "LICENSE"
-build = "scripts/build/version.rs"
 
 [lib]
 path = "src/lib.rs"
@@ -18,9 +17,41 @@ required-features = ["server"]
 name = "abpki-cli"
 path = "src/client/main.rs"
 
+[[test]]
+name = "domain"
+path = "src/test/domain.rs"
+
+[[test]]
+name = "lifecycle"
+path = "src/test/lifecycle.rs"
+
+[[test]]
+name = "listing"
+path = "src/test/listing.rs"
+
+[[test]]
+name = "management"
+path = "src/test/management.rs"
+
+[[test]]
+name = "panic_gate"
+path = "src/test/panic_gate.rs"
+
+[[test]]
+name = "policies"
+path = "src/test/policies.rs"
+
+[[test]]
+name = "truelog"
+path = "src/test/truelog.rs"
+
+[[test]]
+name = "worm"
+path = "src/test/worm.rs"
+
 [features]
 default = ["server"]
-server = ["dep:openssl", "dep:rusqlite", "dep:tar", "dep:flate2", "dep:tempfile"]
+server = ["dep:openssl", "dep:rusqlite", "dep:tar", "dep:flate2", "dep:tempfile", "dep:libloading"]
 
 [dependencies]
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
@@ -35,10 +66,11 @@ tar = { version = "0.4", optional = true }
 flate2 = { version = "1", optional = true }
 tempfile = { version = "3", optional = true }
 autobricks-certificate = { path = "../autobricks-certificate" }
+libloading = { version = "0.8", optional = true }
 
 
 [lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
 
 [profile.release]
 lto = true

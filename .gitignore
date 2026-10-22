@@ -44,3 +44,11 @@ private-key.pem
 # Python installer bytecode
 __pycache__/
 *.pyc
+
+# Local configuration and verification material
+/config/
+/packaging/
+/scripts/
+/test/
+/tests/
+/TEST-PLAN.md

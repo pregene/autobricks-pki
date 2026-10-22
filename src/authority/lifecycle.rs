@@ -138,7 +138,7 @@ impl Service {
         }
         self.reconcile()
     }
-    pub fn tls_config(&self) -> Result<std::sync::Arc<rustls::ServerConfig>> {
+    pub fn tls_identity(&self) -> Result<crate::server::service::TlsIdentity> {
         let id = String::from_utf8(
             self.db
                 .setting("tls_certificate")?
@@ -148,8 +148,13 @@ impl Service {
         if cert.revoked_at.is_some() || now() >= cert.validity.not_after {
             return Err("PKI TLS certificate is revoked or expired".into());
         }
-        let mut chain = cert.pem.as_bytes().to_vec();
+        let certificate = cert.pem.as_bytes().to_vec();
+        let mut chain = certificate.clone();
         chain.extend(self.chain(cert.issuer.as_deref().ok_or("missing TLS issuer")?)?);
-        crate::transport::tls::server(&chain, cert.key_pem.as_bytes())
+        Ok(crate::server::service::TlsIdentity {
+            certificate,
+            chain,
+            key: cert.key_pem.into_bytes(),
+        })
     }
 }

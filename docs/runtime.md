@@ -19,11 +19,15 @@ Install and configure `autobricks-truelog-cli` on the PKI host, with the PKI ser
 | `ABPKI_BIND` | Listen IP address shared by both listeners, without a port | `0.0.0.0` |
 | `ABPKI_TLS_PORT` | Certificate management TLS port | `5545` |
 | `ABPKI_HTTPS_PORT` | Public HTTPS port | `5546` |
+| `ABPKI_COMM_CONFIG` | Comm runtime JSON containing dynamic-library directory and IPC, HTTPS, and structured connection settings | `/etc/autobricks-pki/comm.json` |
+| `ABPKI_COMM_LIBRARY` | Comm dynamic library loaded by PKI | `/usr/local/lib/autobricks/libautobricks_comm.so` |
 | `AUTOBRICKS_DNS_SOCKET` | Autobricks DNS Unix control socket | `/run/autobricks-dns/autobricks-dns.sock` |
 | `ABPKI_TRUELOG_CONFIG` | Installed TrueLog environment file read for `AB_WORM_RETAIN_DAYS` during initialization | `/etc/default/autobricks-log` |
 | `ABPKI_ADMIN_PASSWORD` | Single administrator password used by `init` | Required for initialization |
 
 The SQLite parent directory and WORM artifact directory must already exist. Protect the SQLite directory from other operating-system users. The database requires mode `0600`. `ABPKI_WORM` must designate actual WORM storage; the filesystem supplies immutability and retention enforcement.
+
+Comm connection ownership is externalized in `comm.json`. Its `library_directory`, `ipc`, `http`, and `structured` sections control the loaded connection libraries, socket, bind addresses, protocol modes, worker limits, queues, and timeouts. The daemon refuses to start when this file is absent or malformed. PKI replaces only the temporary server certificate and private-key paths generated from its database identity; it does not synthesize the connection configuration.
 
 ## Initialization and service operation
 
@@ -226,7 +230,7 @@ The public listener exposes only the product information, Root CA, CRL, and OCSP
 
 Management uses one request and response per TLS connection. New clients use `ABP1` framing: four magic bytes, a big-endian 32-bit JSON-header length, a big-endian 32-bit body length, the JSON header, and the raw body. The header contains the existing method/path/content-type/credential or status/content-type fields, without a body field. Header size is limited to 16 KiB. Total frames remain limited to 1 MiB for requests and 16 MiB for responses. Private credentials remain inside TLS.
 
-The server and local relay also accept legacy newline JSON frames and return legacy JSON to those callers. New clients require a server supporting binary frames; no credential-bearing operation is automatically replayed for protocol fallback.
+The local relay uses the binary ABP1 frame and the remote management connection uses the Transport ABT1 structured frame. No protocol fallback is performed.
 
 Current CLI list commands request `/api/list?after=0` or `/api/list-ca?after=0`. Responses contain `entries`, `next_after`, and `through`. Subsequent pages send both `after` and `through`. The CLI prints each page immediately and prints the header once. Legacy selectors without query parameters return an array only when the complete result fits one page; larger results fail rather than silently truncate.
 

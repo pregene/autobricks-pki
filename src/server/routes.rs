@@ -2,9 +2,16 @@ use crate::{
     Result,
     revocation::{self, Status},
     server::service::{Service, now},
-    transport::request::Request,
 };
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
+
+pub struct Request {
+    pub method: String,
+    pub path: String,
+    pub headers: BTreeMap<String, String>,
+    pub body: Vec<u8>,
+}
 pub struct Response {
     pub status: &'static str,
     pub content_type: &'static str,
@@ -48,6 +55,21 @@ pub fn dispatch_public(service: &Service, request: Request) -> Response {
 
 pub fn dispatch(service: &Service, r: Request) -> Response {
     match route(service,&r){Ok(v)=>v,Err(_)=>Response{status:"400 Bad Request",content_type:"application/json",body:br#"{"error":"Request rejected; check parameters, permissions, validity, and service availability."}"#.to_vec()}}
+}
+pub fn dispatch_remote(service: &Service, r: Request, mtls: bool) -> Response {
+    if !mtls && !tls_enrollment_route(&r) {
+        return Response {
+            status: "403 Forbidden",
+            content_type: "application/json",
+            body: br#"{"error":"A verified client certificate is required."}"#.to_vec(),
+        };
+    }
+    dispatch(service, r)
+}
+fn tls_enrollment_route(r: &Request) -> bool {
+    (r.method == "GET" && matches!(r.path.as_str(), "/root" | "/api/root"))
+        || (r.method == "POST" && r.path == "/api/create")
+        || (r.method == "GET" && r.path.starts_with("/api/download/"))
 }
 fn route(s: &Service, r: &Request) -> Result<Response> {
     if r.method == "POST" && r.path == "/api/create-ca" {
@@ -225,3 +247,7 @@ fn decode_segment(raw: &str) -> Result<String> {
     }
     Ok(String::from_utf8(out)?)
 }
+
+#[cfg(test)]
+#[path = "../test/unit/server_routes.rs"]
+mod tests;

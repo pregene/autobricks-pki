@@ -86,5 +86,5 @@ pub fn run(service: Arc<Mutex<Service>>) -> Result<()> {
 }
 
 #[cfg(test)]
-#[path = "../../tests/performance/delivery.rs"]
+#[path = "../test/performance/delivery.rs"]
 mod tests;

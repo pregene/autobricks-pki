@@ -36,6 +36,11 @@ pub struct Service {
     pub dns: Dns,
     pub truelog: crate::integration::truelog::TrueLog,
 }
+pub struct TlsIdentity {
+    pub certificate: Vec<u8>,
+    pub chain: Vec<u8>,
+    pub key: Vec<u8>,
+}
 pub fn now() -> i64 {
     chrono::Utc::now().timestamp()
 }

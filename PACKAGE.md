@@ -1,79 +1,32 @@
-# Building installation packages
+# Installation packages
 
-Autobricks PKI Server 1.0 provides Linux Debian packages built from the source checkout. Run the commands below from the repository root.
+Autobricks PKI Server 1.0.131 is distributed as architecture-specific release
+assets. Verify every downloaded file against the checksum manifest published in
+the same release.
 
-The sibling `../autobricks-certificate` checkout is required. The build creates its dynamic library before compiling PKI, and the server package installs the library under `/usr/lib/autobricks/`.
+## Ubuntu packages
 
-## Package types
+| Ubuntu | Architecture | Server package | Client package |
+| --- | --- | --- | --- |
+| 22.04 | amd64 | `autobricks-pki-1.0.131-ubuntu-22.04-amd64.deb` | `autobricks-pki-cli-1.0.131-ubuntu-22.04-amd64.deb` |
+| 22.04 | arm64 | `autobricks-pki-1.0.131-ubuntu-22.04-arm64.deb` | `autobricks-pki-cli-1.0.131-ubuntu-22.04-arm64.deb` |
+| 24.04 | amd64 | `autobricks-pki-1.0.131-ubuntu-24.04-amd64.deb` | `autobricks-pki-cli-1.0.131-ubuntu-24.04-amd64.deb` |
+| 24.04 | arm64 | `autobricks-pki-1.0.131-ubuntu-24.04-arm64.deb` | `autobricks-pki-cli-1.0.131-ubuntu-24.04-arm64.deb` |
 
-| Package | Contents |
-| --- | --- |
-| `autobricks-pki` | Server, local client, both services, configuration tools and documentation |
-| `autobricks-pki-cli` | Local client service, CLI, configuration tools and documentation |
-
-The packages are mutually exclusive because they own the same client files. Install the server package on a PKI server host, or the client-only package on a host connecting to an existing server.
-
-## Build on the current host
-
-Use a Linux amd64 or arm64 host with Bash, Python 3, `flock`, a Rust toolchain supporting edition 2024, a C compiler, `pkg-config`, `dpkg-dev`, and distribution OpenSSL development libraries (`libssl-dev`).
-
-```sh
-./scripts/build/run.sh ./scripts/package/build.sh
-```
-
-The command builds both binaries and creates both package types for the host OS/version and architecture. Binaries are staged in `bin/`; packages are written to `build/`:
-
-```text
-autobricks-pki-VERSION-OS-OS_VERSION-ARCH.deb
-autobricks-pki-cli-VERSION-OS-OS_VERSION-ARCH.deb
-```
-
-The build runner allocates a new `1.0.NNN` version before each build attempt, including an attempt that later fails. Use the generated filenames rather than renaming packages for a different platform.
-
-To package binaries already staged in `bin/`:
-
-```sh
-./scripts/package/build.sh --existing-binaries
-```
-
-Both binaries must report the version in `VERSION`. This command does not compile or allocate another version.
-
-## Ubuntu package matrix
-
-Use Docker Engine on an amd64 host with permission to run Docker and network access for build dependencies:
-
-```sh
-./scripts/build/run.sh ./scripts/package/docker/build.sh
-```
-
-| Ubuntu | Architectures | Package types |
-| --- | --- | --- |
-| 22.04 | amd64, arm64 | Server plus client; client only |
-| 24.04 | amd64, arm64 | Server plus client; client only |
-
-The command produces eight packages under one version, using Rust 1.98.1 and locked Cargo dependencies. ARM64 packages are cross-compiled. Each target uses its distribution OpenSSL libraries. All four targets must succeed before the packages are copied into `build/`.
-
-Packages are checked for name, version, architecture, binary contents and required libraries. amd64 binaries also run version/help checks. ARM64 runtime and package installation require a matching target host; the build does not install the packages on the build host.
-
-## Verify package checksums
-
-The matrix build writes `build/SHA256SUMS-VERSION.txt`. Replace `<version>` with the generated version:
-
-```sh
-cd build
-sha256sum -c SHA256SUMS-<version>.txt
-```
-
-Use the package matching the destination OS/version and architecture. See [installation and removal](INSTALL.md) for prerequisites, configuration inputs and installation commands.
-
-[Binary builds](docs/build.md) · [File layout](FILES.md)
+The server package contains `abpkid`, `abpki-cli`, and the Certificate, COMM,
+IPC, Transport, and Service dynamic libraries. The client package contains
+`abpki-cli` and the same five dynamic libraries but does not contain `abpkid`.
 
 ## macOS client packages
 
-Client-only installation archives support macOS 11 or later on arm64 and x86_64. See [macOS client installation and package builds](docs/macos-client.md).
+Client archives are provided for macOS arm64 and x86_64:
 
-```sh
-./scripts/build/run.sh --keep-version ./scripts/package/macos.sh
-```
+- `autobricks-pki-cli-1.0.131-macos-arm64.tar.gz`
+- `autobricks-pki-cli-1.0.131-macos-x86_64.tar.gz`
 
-This build keeps the current version and creates `autobricks-pki-cli-VERSION-macos-arm64.tar.gz`, `autobricks-pki-cli-VERSION-macos-x86_64.tar.gz` and `macos-SHA256SUMS` in `build/`. Each archive includes the client executable, launchd service, installation/removal scripts and license notices. It contains no server executable. Linux cross-builds require Zig, cargo-zigbuild and a macOS SDK specified by `SDKROOT`.
+Each archive contains `abpki-cli`, the five matching dynamic libraries,
+installation and removal commands, launchd configuration, and license notices.
+It contains no server executable.
+
+See [installation and removal](INSTALL.md) and the
+[macOS client guide](docs/macos-client.md) for installation instructions.

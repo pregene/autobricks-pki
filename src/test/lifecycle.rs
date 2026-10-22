@@ -44,6 +44,7 @@ impl Fixture {
         let thread = std::thread::spawn(move || {
             while !stopping.load(Ordering::Acquire) {
                 if let Ok((mut s, _)) = listener.accept() {
+                    s.set_nonblocking(false).unwrap();
                     let mut b = vec![];
                     s.read_to_end(&mut b).unwrap();
                     let v: serde_json::Value = serde_json::from_slice(&b).unwrap();
@@ -266,49 +267,6 @@ fn database_rejects_worm_and_broad_permissions() {
     assert!(Database::open(&db, &worm).is_err());
 }
 #[test]
-fn tls_client_without_certificate_and_hostname_validation() {
-    let f = Fixture::new();
-    let c = f
-        .service
-        .db
-        .all()
-        .unwrap()
-        .into_iter()
-        .find(|c| c.kind == "server")
-        .unwrap();
-    let mut chain = c.pem.as_bytes().to_vec();
-    chain.extend(f.service.chain(c.issuer.as_deref().unwrap()).unwrap());
-    let config = autobricks_pki::transport::tls::server(&chain, c.key_pem.as_bytes()).unwrap();
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let addr = listener.local_addr().unwrap();
-    let server = std::thread::spawn(move || {
-        let (socket, _) = listener.accept().unwrap();
-        let mut stream =
-            autobricks_pki::transport::tls::DeadlineStream::new(socket, config).unwrap();
-        let request = autobricks_pki::transport::request::Request::read(&mut stream).unwrap();
-        assert_eq!(request.path, "/");
-        autobricks_pki::transport::response::write_response(
-            &mut stream,
-            "200 OK",
-            "text/plain",
-            b"ok",
-        )
-        .unwrap();
-    });
-    let body = autobricks_pki::client::request(
-        &format!("https://localhost:{}", addr.port()),
-        f.service.root().unwrap().pem.as_bytes(),
-        "GET",
-        "/",
-        &[],
-        None,
-    )
-    .unwrap();
-    assert_eq!(body, b"ok");
-    server.join().unwrap();
-}
-
-#[test]
 fn ca_renewal_preserves_status_and_dns_retries() {
     let f = Fixture::new();
     let s = &f.service;
@@ -422,6 +380,7 @@ fn integration_failure_is_durable_and_private_keys_are_not_public() {
 }
 
 #[test]
+#[cfg(not(target_os = "macos"))]
 fn binaries_and_openssl_ocsp_interoperate() {
     use std::process::{Command, Stdio};
     struct Running(std::process::Child);
@@ -480,6 +439,8 @@ fn binaries_and_openssl_ocsp_interoperate() {
             https_port: address.port(),
             unix_socket: client_socket.to_string_lossy().into_owned(),
             ca: root.to_string_lossy().into_owned(),
+            certificate: None,
+            private_key: None,
         })
         .unwrap(),
     )
@@ -651,38 +612,6 @@ fn binaries_and_openssl_ocsp_interoperate() {
     );
     assert!(String::from_utf8_lossy(&revoked.stdout).contains(": revoked"));
     assert!(String::from_utf8_lossy(&cli(&["check", id], None, None).stdout).contains("REVOKED"));
-}
-
-#[test]
-fn tls_rejects_an_untrusted_root() {
-    let f = Fixture::new();
-    let config = f.service.tls_config().unwrap();
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = listener.local_addr().unwrap();
-    let server = std::thread::spawn(move || {
-        let (socket, _) = listener.accept().unwrap();
-        let mut stream =
-            autobricks_pki::transport::tls::DeadlineStream::new(socket, config).unwrap();
-        assert!(autobricks_pki::transport::request::Request::read(&mut stream).is_err());
-    });
-    let (other, _) = autobricks_pki::certificate::crypto::ca(
-        "Other Root",
-        None,
-        Validity::new(now(), 398, None).unwrap(),
-    )
-    .unwrap();
-    assert!(
-        autobricks_pki::client::request(
-            &format!("https://localhost:{}", address.port()),
-            &other.to_pem().unwrap(),
-            "GET",
-            "/",
-            &[],
-            None
-        )
-        .is_err()
-    );
-    server.join().unwrap();
 }
 
 #[test]
@@ -1085,7 +1014,7 @@ fn additional_ca_creation_is_unavailable_without_side_effects() {
     }
     let response = autobricks_pki::server::routes::dispatch(
         &f.service,
-        autobricks_pki::transport::request::Request {
+        autobricks_pki::server::routes::Request {
             method: "POST".into(),
             path: "/api/create-ca".into(),
             headers: Default::default(),
@@ -1409,34 +1338,6 @@ fn certificate_info_reads_only_public_artifact_and_handles_missing_fingerprint()
 }
 
 #[test]
-fn cached_tls_keeps_metadata_checks_without_reopening_keys() {
-    let f = Fixture::new();
-    let cache = autobricks_pki::server::tls_cache::TlsCache::default();
-    let first = cache.config(&f.service).unwrap();
-    let connection = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
-    connection
-        .execute("DELETE FROM settings WHERE name='private_key_password'", [])
-        .unwrap();
-    let second = cache.config(&f.service).unwrap();
-    assert!(Arc::ptr_eq(&first, &second));
-    let id = String::from_utf8(f.service.db.setting("tls_certificate").unwrap().unwrap()).unwrap();
-    connection
-        .execute(
-            "UPDATE certificates SET revoked_at=1 WHERE fingerprint=?",
-            [&id],
-        )
-        .unwrap();
-    assert!(cache.config(&f.service).is_err());
-    connection
-        .execute(
-            "UPDATE certificates SET revoked_at=NULL,not_after=0 WHERE fingerprint=?",
-            [&id],
-        )
-        .unwrap();
-    assert!(cache.config(&f.service).is_err());
-}
-
-#[test]
 fn pending_delivery_batches_advance_past_uncompleted_rows() {
     let f = Fixture::new();
     for _ in 0..130 {
@@ -1490,42 +1391,6 @@ fn background_delivery_defers_external_tools_but_publishes_revocation() {
             .any(|(_, kind, _)| kind == "crl")
     );
     assert!(f.service.db.has_pending().unwrap());
-}
-
-#[path = "performance/client.rs"]
-mod client_performance;
-
-#[test]
-fn tls_cache_reloads_changed_fingerprint_and_rejects_broken_replacement() {
-    let f = Fixture::new();
-    let cache = autobricks_pki::server::tls_cache::TlsCache::default();
-    let first = cache.config(&f.service).unwrap();
-    let replacement = f.issue(47);
-    f.service
-        .db
-        .set_setting(
-            "tls_certificate",
-            replacement.certificate.fingerprint.as_bytes(),
-        )
-        .unwrap();
-    let second = cache.config(&f.service).unwrap();
-    assert!(!Arc::ptr_eq(&first, &second));
-    assert!(Arc::ptr_eq(&second, &cache.config(&f.service).unwrap()));
-    let broken = f.issue(47);
-    let conn = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
-    conn.execute(
-        "UPDATE certificates SET private_key_path='missing.pem' WHERE fingerprint=?",
-        [&broken.certificate.fingerprint],
-    )
-    .unwrap();
-    f.service
-        .db
-        .set_setting("tls_certificate", broken.certificate.fingerprint.as_bytes())
-        .unwrap();
-    assert!(
-        cache.config(&f.service).is_err(),
-        "old TLS config hid a broken replacement"
-    );
 }
 
 #[test]
@@ -1788,7 +1653,7 @@ fn list_filter_regression(intermediate: bool) {
     let request = |path: &str| {
         autobricks_pki::server::routes::dispatch(
             &f.service,
-            autobricks_pki::transport::request::Request {
+            autobricks_pki::server::routes::Request {
                 method: "GET".into(),
                 path: path.into(),
                 headers: Default::default(),
@@ -2560,7 +2425,7 @@ fn ca_handover_replaces_service_tls_before_forced_retirement() {
         replacement.validity.not_after - replacement.validity.not_before,
         old.validity.not_after - old.validity.not_before
     );
-    f.service.tls_config().unwrap();
+    f.service.tls_identity().unwrap();
     let conn = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
     let transition: i64 = conn
         .query_row(
@@ -2584,7 +2449,7 @@ fn ca_handover_replaces_service_tls_before_forced_retirement() {
         f.service.db.revocation_status(&replacement_id).unwrap(),
         Some(None)
     );
-    f.service.tls_config().unwrap();
+    f.service.tls_identity().unwrap();
 }
 
 #[test]

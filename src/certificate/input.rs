@@ -67,7 +67,7 @@ impl<'de> Deserialize<'de> for StrictValue {
     }
 }
 pub fn shape(v: &Value, depth: usize) -> Result<()> {
-    Ok(autobricks_certificate::input::shape(v, depth)?)
+    autobricks_certificate::input::shape(v, depth)
 }
 pub fn create(bytes: &[u8]) -> Result<crate::server::service::Create> {
     if bytes.len() > MAX_CREATE {

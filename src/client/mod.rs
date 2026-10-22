@@ -162,8 +162,8 @@ pub(crate) fn management_request_with_config(
         credential: token.map(str::to_owned),
         body: body.to_vec(),
     };
-    management::write_frame(&mut stream, &message, crate::transport::request::MAX_BODY)?;
-    let response: Reply = management::read_frame(&mut stream, management::MAX_RESPONSE)?;
+    management::write_structured(&mut stream, &message, management::MAX_REQUEST)?;
+    let response: Reply = management::read_structured(&mut stream, management::MAX_RESPONSE)?;
     if response.status != "200 OK" {
         return Err(format!("server returned {}", response.status).into());
     }

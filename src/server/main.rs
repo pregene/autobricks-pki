@@ -2,12 +2,12 @@ use autobricks_pki::{
     Result,
     certificate::profile::Distribution,
     integration::dns::Dns,
-    server::{config::Config, listener, service::Service},
+    server::{config::Config, service::Service},
     storage::{database::Database, worm::Worm},
 };
 use std::{
-    env,
-    net::TcpListener,
+    env, fs,
+    os::unix::fs::PermissionsExt,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -18,11 +18,22 @@ fn main() {
     }
 }
 fn run() -> Result<()> {
-    let args: Vec<_> = env::args().skip(1).collect();
+    let mut args: Vec<_> = env::args().skip(1).collect();
     if autobricks_pki::help::print_if_requested("abpkid", &args)? {
         return Ok(());
     }
+    let config_path = if args.first().is_some_and(|value| value == "--config") {
+        if args.len() < 3 {
+            return Err("--config requires a JSON file before the command".into());
+        }
+        let path = std::path::PathBuf::from(args.remove(1));
+        args.remove(0);
+        Some(path)
+    } else {
+        env::var_os("ABPKI_CONFIG").map(Into::into)
+    };
     if !((args.len() == 2 || args.len() == 3) && args[0] == "init")
+        && !(args.len() == 2 && args[0] == "identity")
         && args != ["serve"]
         && args != ["root"]
     {
@@ -35,7 +46,7 @@ fn run() -> Result<()> {
     } else {
         None
     };
-    let c = Config::environment()?;
+    let c = Config::load(config_path.as_deref())?;
     let database = Database::open(&c.database, &c.worm)?;
     let saved_domain = database
         .setting("base_domain")?
@@ -52,10 +63,7 @@ fn run() -> Result<()> {
     } else {
         c.origin.clone()
     };
-    let mut origin = url::Url::parse(&origin)?;
-    origin
-        .set_port(Some(c.listeners.https_port))
-        .map_err(|_| "invalid HTTPS origin")?;
+    let origin = url::Url::parse(&origin)?;
     let distribution = Distribution::new(origin.as_str())?;
     let service = Service {
         background_delivery: args == ["serve"],
@@ -71,6 +79,28 @@ fn run() -> Result<()> {
     };
     if args == ["root"] {
         print!("{}", service.public_root()?.pem);
+        return Ok(());
+    }
+    if args[0] == "identity" {
+        let directory = std::path::Path::new(&args[1]);
+        fs::create_dir_all(directory)?;
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
+        let identity = service.tls_identity()?;
+        let root = service.public_root()?.pem.into_bytes();
+        let mut fullchain = identity.certificate.clone();
+        fullchain.extend_from_slice(&identity.chain);
+        for (name, value) in [
+            ("certificate.pem", identity.certificate),
+            ("private-key.pem", identity.key),
+            ("trust-chain.pem", identity.chain),
+            ("fullchain.pem", fullchain),
+            ("client-ca.pem", root),
+        ] {
+            let path = directory.join(name);
+            fs::write(&path, value)?;
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+        }
+        println!("PKI TLS identity prepared");
         return Ok(());
     }
     if args[0] == "init" {
@@ -93,10 +123,29 @@ fn run() -> Result<()> {
     if let Err(error) = service.run_hourly_renewal(autobricks_pki::server::service::now()) {
         eprintln!("hourly renewal failed: {error}");
     }
-    service.tls_config()?;
-    let management_listener = TcpListener::bind(c.listeners.tls_address())?;
-    let https_listener = TcpListener::bind(c.listeners.https_address())?;
     let service = Arc::new(Mutex::new(service));
+    let comm_config_path = c
+        .comm_config
+        .as_ref()
+        .ok_or("serve requires comm_config or ABPKI_COMM_CONFIG")?;
+    let comm_library = c
+        .comm_library
+        .as_ref()
+        .ok_or("serve requires comm_library or ABPKI_COMM_LIBRARY")?;
+    let comm_config: serde_json::Value = serde_json::from_slice(&fs::read(comm_config_path)?)?;
+    comm_config
+        .as_object()
+        .ok_or("Comm configuration root must be a JSON object")?;
+    let ipc_service = service.clone();
+    let http_service = service.clone();
+    let structured_service = service.clone();
+    let _comm = autobricks_pki::comm::Runtime::start(
+        comm_library,
+        &serde_json::to_string(&comm_config)?,
+        move |payload| dispatch_ipc(&ipc_service, payload),
+        move |request| dispatch_http(&http_service, request),
+        move |request| dispatch_structured(&structured_service, request),
+    )?;
     let delivery = service.clone();
     std::thread::Builder::new()
         .name("abpkid-delivery".into())
@@ -127,10 +176,82 @@ fn run() -> Result<()> {
             }
         })?;
     println!(
-        "abpkid {} management TLS={} public HTTPS={}",
+        "abpkid {} Comm configuration={}",
         autobricks_pki::VERSION,
-        management_listener.local_addr()?,
-        https_listener.local_addr()?
+        comm_config_path.display()
     );
-    listener::serve(management_listener, https_listener, service)
+    loop {
+        std::thread::park_timeout(Duration::from_secs(3600));
+    }
+}
+
+fn dispatch_http(
+    service: &Arc<Mutex<Service>>,
+    request: autobricks_pki::comm::HttpRequest,
+) -> std::result::Result<autobricks_pki::comm::HttpResponse, String> {
+    let request = autobricks_pki::server::routes::Request {
+        method: request.method,
+        path: request.path,
+        headers: request.headers,
+        body: request.body,
+    };
+    let response = autobricks_pki::server::routes::dispatch_public(
+        &*service.lock().map_err(|_| "service lock failed")?,
+        request,
+    );
+    let status = response
+        .status
+        .split_once(' ')
+        .and_then(|(value, _)| value.parse().ok())
+        .ok_or_else(|| "invalid PKI HTTP status".to_owned())?;
+    Ok(autobricks_pki::comm::HttpResponse {
+        status,
+        content_type: response.content_type.to_owned(),
+        headers: vec![("Cache-Control".to_owned(), "no-store".to_owned())],
+        body: response.body,
+    })
+}
+
+fn dispatch_message(
+    service: &Arc<Mutex<Service>>,
+    message: autobricks_pki::transport::management::Message,
+    mtls: bool,
+) -> Result<autobricks_pki::transport::management::Reply> {
+    let request = message.into_request()?;
+    Ok(autobricks_pki::transport::management::Reply::from(
+        autobricks_pki::server::routes::dispatch_remote(
+            &*service.lock().map_err(|_| "service lock failed")?,
+            request,
+            mtls,
+        ),
+    ))
+}
+
+fn dispatch_ipc(
+    service: &Arc<Mutex<Service>>,
+    payload: &str,
+) -> std::result::Result<String, String> {
+    let message = serde_json::from_str(payload).map_err(|e| e.to_string())?;
+    let reply = dispatch_message(service, message, true).map_err(|e| e.to_string())?;
+    serde_json::to_string(&reply).map_err(|e| e.to_string())
+}
+
+fn dispatch_structured(
+    service: &Arc<Mutex<Service>>,
+    request: autobricks_pki::comm::StructuredRequest,
+) -> std::result::Result<autobricks_pki::comm::StructuredResponse, String> {
+    let mtls = !request.certificate.is_empty();
+    let mut message: autobricks_pki::transport::management::Message =
+        serde_json::from_slice(&request.metadata).map_err(|e| e.to_string())?;
+    message.body = request.payload;
+    let reply = dispatch_message(service, message, mtls).map_err(|e| e.to_string())?;
+    let metadata = serde_json::to_vec(&serde_json::json!({
+        "status":reply.status,
+        "content_type":reply.content_type
+    }))
+    .map_err(|e| e.to_string())?;
+    Ok(autobricks_pki::comm::StructuredResponse {
+        metadata,
+        payload: reply.body,
+    })
 }

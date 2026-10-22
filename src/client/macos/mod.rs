@@ -5,6 +5,12 @@ pub const SOCKET: &str = "/var/run/autobricks-pki-client/client.sock";
 pub const CONFIG: &str = "/Library/Application Support/Autobricks PKI/client.json";
 
 pub fn tls_config() -> Result<Arc<rustls::ClientConfig>> {
+    tls_config_with_identity(None)
+}
+
+pub fn tls_config_with_identity(
+    identity: Option<(&[u8], &[u8])>,
+) -> Result<Arc<rustls::ClientConfig>> {
     if std::env::var_os("SSL_CERT_FILE").is_some() || std::env::var_os("SSL_CERT_DIR").is_some() {
         return Err(
             "macOS client requires OS trust; remove SSL_CERT_FILE and SSL_CERT_DIR overrides"
@@ -23,14 +29,21 @@ pub fn tls_config() -> Result<Arc<rustls::ClientConfig>> {
         )
         .into());
     }
-    Ok(Arc::new(
-        rustls::ClientConfig::builder_with_provider(Arc::new(
-            rustls::crypto::ring::default_provider(),
-        ))
-        .with_safe_default_protocol_versions()?
-        .with_root_certificates(roots)
-        .with_no_client_auth(),
+    let builder = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
     ))
+    .with_safe_default_protocol_versions()?
+    .with_root_certificates(roots);
+    let config = match identity {
+        Some((certificate, key)) => builder.with_client_auth_cert(
+            rustls_pemfile::certs(&mut std::io::BufReader::new(certificate))
+                .collect::<std::io::Result<Vec<_>>>()?,
+            rustls_pemfile::private_key(&mut std::io::BufReader::new(key))?
+                .ok_or("private key is missing")?,
+        )?,
+        None => builder.with_no_client_auth(),
+    };
+    Ok(Arc::new(config))
 }
 
 /// Validate both remote listeners and print the installation settings as JSON.
@@ -44,6 +57,8 @@ pub fn configure(args: &[String]) -> Result<()> {
         https_port: args[2].parse()?,
         unix_socket: SOCKET.into(),
         ca: "macos-system-trust".into(),
+        certificate: None,
+        private_key: None,
     };
     let origin = config.origin()?;
     if std::path::Path::new(CONFIG).exists() {

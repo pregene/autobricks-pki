@@ -53,13 +53,3 @@ sudo ./uninstall.sh
 ```
 
 Removal stops the service and removes its executable, configuration, socket and enrolled Root trust. User credential records, downloaded certificates and service logs remain.
-
-## Building packages
-
-Install Rust with `aarch64-apple-darwin` and `x86_64-apple-darwin` targets. On macOS, install the Xcode command line tools. On Linux, provide Zig, cargo-zigbuild and an extracted macOS SDK through `SDKROOT`.
-
-```sh
-scripts/build/run.sh --keep-version scripts/package/macos.sh
-```
-
-The command produces two architecture-specific installation archives and `macos-SHA256SUMS` under `build/`, using the current project version. Archives are unsigned and are installed from a terminal.

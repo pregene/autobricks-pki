@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "autobricks-certificate"
-version = "0.1.0"
+version = "1.0.127"
 dependencies = [
  "chrono",
  "libloading",
@@ -37,6 +37,7 @@ dependencies = [
  "autobricks-certificate",
  "chrono",
  "flate2",
+ "libloading",
  "openssl",
  "rusqlite",
  "rustls",

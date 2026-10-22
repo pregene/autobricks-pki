@@ -2,15 +2,11 @@ use autobricks_pki::{
     certificate::{access::Access, profile::Distribution, validity::Validity},
     client,
     revocation::ocsp,
-    transport::{
-        management::{self, Message},
-        request::Request,
-    },
+    transport::management::{self, Message},
 };
 use std::io::Cursor;
 
 fn parse_external_bytes(bytes: &[u8]) {
-    let _ = Request::read(&mut Cursor::new(bytes));
     let _ = management::read_frame::<Message>(&mut Cursor::new(bytes), 1024);
     let _ = ocsp::respond(bytes, &[], 0);
 }
@@ -52,7 +48,7 @@ fn external_input_truncations_and_byte_corpus_do_not_panic() {
 
 #[test]
 fn frame_limit_boundary_does_not_overflow() {
-    let mut input = Cursor::new(b"{}\n");
+    let mut input = Cursor::new(b"ABP1");
     assert!(management::read_frame::<Message>(&mut input, usize::MAX).is_err());
 }
 
