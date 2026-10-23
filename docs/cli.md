@@ -10,11 +10,12 @@ On Linux, `abpki-cli.service` runs the local daemon with `/etc/autobricks-pki-cl
 
 | Command | Function |
 | --- | --- |
-| `abpki-cli create-ca ... --pass {password}` | Not implemented in 1.0; reserved for 1.1. |
+| `abpki-cli create-ca NAME [--days DAYS] --pass [PASSWORD]` | Create an additional Intermediate CA. |
+| `abpki-cli certificate FINGERPRINT [FINGERPRINT ...] --pass [PASSWORD]` | Issue one `cert` CA authorization PEM for one to 64 renewal targets. |
 | `abpki-cli revoke ... --pass` | Revoke a certificate; requires the administrator password. |
 | `abpki-cli chain ...` | Download the Intermediate CA and Root CA certificates as `trust-chain`. |
 | `abpki-cli root ...` | Download the Root CA certificate as `root.crt`. |
-| `abpki-cli renew <fingerprint> [--pass [PASSWORD]]` | Poll a leaf with its saved token; --pass marks a CA or leaf SUPERSEDED without issuance. |
+| `abpki-cli renew FINGERPRINT [--cert PATH \| --pass [PASSWORD]]` | Renew one leaf using its token or authorization PEM; `--pass` marks a CA or leaf SUPERSEDED without issuance. |
 | `abpki-cli create ...` | Create a server or client certificate for its intended use. |
 | `abpki-cli check ...` | Query certificate status: `GOOD`, `REVOKED`, or `UNKNOWN`. |
 | `abpki-cli info <fingerprint>` | Display X.509 certificate information. |
@@ -22,11 +23,13 @@ On Linux, `abpki-cli.service` runs the local daemon with `/etc/autobricks-pki-cl
 | `abpki-cli list [valid|revoked|renew|all]` | List leaf metadata by state; defaults to `valid`. |
 | `abpki-cli download {fingerprint} {target}` | Download the certificate, its private key, and its trust chain as `{target}.tar.gz`, identified by the certificate fingerprint. |
 
-Certificate creation is available to any connected client. URI SAN values are encoded within the documented input limits. The consuming server or client interprets purpose and access-policy claims. See the [field input reference](../LEAF-CREATE.md#certificate-field-support). Additional Intermediate CA creation returns `501 Not Implemented` in 1.0. Certificate revocation requires the administrator password. `abpkid` enforces these permissions when processing requests.
+Certificate creation is available to any connected client. URI SAN values are encoded within the documented input limits. The consuming server or client interprets purpose and access-policy claims. See the [field input reference](../LEAF-CREATE.md#certificate-field-support). Additional Intermediate CA creation and renewal-authorization issuance require the administrator password. Certificate revocation also requires the administrator password. `abpkid` enforces these permissions when processing requests.
 
 ## Validity and renewal
 
 Leaf certificates default to 47 days; Intermediate CAs use the installation-derived `min(398, TrueLog retention days - 7)` default and maximum. Leaves enter SUPERSEDED when seven days remain or their issuer is replaced; CA renewal starts at 48 days. ADMIN `renew --pass` can mark a certificate SUPERSEDED earlier. Normal leaf `renew` returns a no-op for VALID or issues a new VALID certificate for SUPERSEDED, preserving its original duration. Old leaves retire after seven days and old CAs after 48 days, independently of renewal/download completion.
+
+When `auth_2fa` is `false`, the existing saved-token renewal remains unchanged. When `auth_2fa` is `true`, token renewal is rejected and the caller must use `renew FINGERPRINT --cert PATH`. `PATH` must contain a currently valid, unrevoked certificate issued by `cert.<baseDomain>` with the exact URI SAN `urn:autobricks:certificate:<fingerprint>`. One authorization certificate may contain permissions for several fingerprints, but every `renew` command processes exactly one fingerprint.
 
 [Step-by-step leaf renewal and response examples](../LEAF-RENEW.md) · [Intermediate CA operator procedure](../INTERMEDIATE.md#operator-procedure) · [Validity and renewal rules](../VALIDATION.md)
 

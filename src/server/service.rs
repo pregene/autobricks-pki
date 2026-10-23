@@ -29,6 +29,7 @@ pub struct Issued {
     pub integrations_pending: bool,
 }
 pub struct Service {
+    pub auth_2fa: bool,
     pub background_delivery: bool,
     pub db: Database,
     pub distribution: Distribution,

@@ -78,11 +78,42 @@ impl Service {
         self.reconcile()?;
         Ok(())
     }
-    pub fn create_ca(&self, _cn: &str, _days: Option<u32>, _admin: &[u8]) -> Result<Certificate> {
-        Err(
-            "Not implemented: additional Intermediate CA creation is unavailable in version 1.0"
-                .into(),
-        )
+    pub fn create_ca(&self, cn: &str, days: Option<u32>, admin: &[u8]) -> Result<Certificate> {
+        password::verify(&self.db, admin)?;
+        let base_domain = String::from_utf8(
+            self.db
+                .setting("base_domain")?
+                .ok_or("missing baseDomain")?,
+        )?;
+        let name = crate::certificate::common_name::intermediate(cn, &base_domain)?;
+        let common_name = format!("{name}.{base_domain}");
+        let maximum = self.intermediate_days()?;
+        let days = days.unwrap_or(maximum);
+        if days == 0 || days > maximum {
+            return Err(format!("Intermediate CA days must be between 1 and {maximum}").into());
+        }
+        let exists: bool = self.db.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM certificates WHERE kind='intermediate' AND cn=?1)",
+            [&common_name],
+            |row| row.get(0),
+        )?;
+        if exists {
+            return Err("Intermediate CA already exists".into());
+        }
+        let start = now();
+        let root = self.root()?;
+        let validity = Validity::new(start, days, Some(root.validity))?;
+        let root_cert = X509::from_pem(root.pem.as_bytes())?;
+        let root_key = PKey::private_key_from_pem(root.key_pem.as_bytes())?;
+        let (cert, key) = crypto::ca(&common_name, Some((&root_cert, &root_key)), validity)?;
+        let created = record(cert, key, "intermediate", Some(root.fingerprint), validity)?;
+        self.db.transaction(|| {
+            self.db.insert(&created)?;
+            self.archive(&created, "intermediate-created")?;
+            self.publish_crl(&created, start)
+        })?;
+        self.reconcile()?;
+        self.db.metadata(&created.fingerprint)
     }
     pub fn root(&self) -> Result<Certificate> {
         self.db.get(&self.db.root_id()?)

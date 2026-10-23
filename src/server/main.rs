@@ -66,6 +66,7 @@ fn run() -> Result<()> {
     let origin = url::Url::parse(&origin)?;
     let distribution = Distribution::new(origin.as_str())?;
     let service = Service {
+        auth_2fa: c.auth_2fa,
         background_delivery: args == ["serve"],
         db: database,
         distribution,
@@ -115,7 +116,7 @@ fn run() -> Result<()> {
             installation_domain
                 .as_deref()
                 .ok_or("missing installation baseDomain")?,
-            autobricks_pki::integration::retention::days(&c.truelog_config)?,
+            c.retention_days,
         )?;
         println!("PKI initialized");
         return Ok(());
@@ -128,10 +129,6 @@ fn run() -> Result<()> {
         .comm_config
         .as_ref()
         .ok_or("serve requires comm_config or ABPKI_COMM_CONFIG")?;
-    let comm_library = c
-        .comm_library
-        .as_ref()
-        .ok_or("serve requires comm_library or ABPKI_COMM_LIBRARY")?;
     let comm_config: serde_json::Value = serde_json::from_slice(&fs::read(comm_config_path)?)?;
     comm_config
         .as_object()
@@ -140,7 +137,7 @@ fn run() -> Result<()> {
     let http_service = service.clone();
     let structured_service = service.clone();
     let _comm = autobricks_pki::comm::Runtime::start(
-        comm_library,
+        std::path::Path::new(autobricks_pki::comm::LIBRARY_NAME),
         &serde_json::to_string(&comm_config)?,
         move |payload| dispatch_ipc(&ipc_service, payload),
         move |request| dispatch_http(&http_service, request),

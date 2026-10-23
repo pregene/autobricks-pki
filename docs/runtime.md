@@ -20,9 +20,7 @@ Install and configure `autobricks-truelog-cli` on the PKI host, with the PKI ser
 | `ABPKI_TLS_PORT` | Certificate management TLS port | `5545` |
 | `ABPKI_HTTPS_PORT` | Public HTTPS port | `5546` |
 | `ABPKI_COMM_CONFIG` | Comm runtime JSON containing dynamic-library directory and IPC, HTTPS, and structured connection settings | `/etc/autobricks-pki/comm.json` |
-| `ABPKI_COMM_LIBRARY` | Comm dynamic library loaded by PKI | `/usr/local/lib/autobricks/libautobricks_comm.so` |
 | `AUTOBRICKS_DNS_SOCKET` | Autobricks DNS Unix control socket | `/run/autobricks-dns/autobricks-dns.sock` |
-| `ABPKI_TRUELOG_CONFIG` | Installed TrueLog environment file read for `AB_WORM_RETAIN_DAYS` during initialization | `/etc/default/autobricks-log` |
 | `ABPKI_ADMIN_PASSWORD` | Single administrator password used by `init` | Required for initialization |
 
 The SQLite parent directory and WORM artifact directory must already exist. Protect the SQLite directory from other operating-system users. The database requires mode `0600`. `ABPKI_WORM` must designate actual WORM storage; the filesystem supplies immutability and retention enforcement.
@@ -55,7 +53,7 @@ abpkid serve
 
 `init` takes the DNS registration address as an installation argument, separate from the listener bind address. Wildcard and multicast registration addresses are rejected. Normal service operation does not require this argument.
 
-`init` reads TrueLog retention and stores `min(398, retention days - 7)` as the default and maximum Intermediate CA lifetime. The TrueLog configuration must be readable by the initialization account; invalid or unavailable retention prevents CA creation.
+`init` stores `min(398, retention_days - 7)` as the default and maximum Intermediate CA lifetime. `retention_days` is read from the PKI JSON configuration and defaults to 365.
 
 `init` requires a password of at least 12 bytes and creates the Root CA, six Intermediate CAs, empty signed CRLs, and the PKI service's TLS certificate. It writes certificates and encrypted keys to WORM before committing their metadata and queues DNS registration for the service hostname and audit submission through TrueLog. Reinitializing an existing hierarchy is rejected.
 
@@ -99,10 +97,12 @@ Each command supplies its complete operation data through the Unix socket. The s
 | --- | --- | --- | --- |
 | `create` | Issuer and complete certificate profile. | null | CLI arguments/JSON input. |
 | `renew` (leaf) | Existing fingerprint only; original duration is preserved. | Certificate access token. | CLI reads its calling user's protected certificate credential record. |
+| `renew --cert PATH` | One existing fingerprint; original duration is preserved. | PEM renewal authorization. | CLI reads `PATH`; server verifies `cert.<baseDomain>` issuance and the exact fingerprint URI SAN. |
 | `renew --pass` (CA or leaf) | Existing fingerprint only; mark SUPERSEDED without issuance. | Administrator password. | Explicit argument or hidden CLI prompt; sent through the Unix socket. |
 | `revoke` | Target fingerprint. | Administrator password. | `--pass PASSWORD`, or an interactive hidden prompt when `--pass` has no value. |
 | `download` | Fingerprint in the existing path selector. | Certificate access token. | CLI reads its calling user's protected certificate credential record. |
-| `create-ca` | Unavailable in version 1.0. | Not used. | Returns Not implemented without performing issuance. |
+| `create-ca` | CA name and optional days. | Administrator password. | Explicit argument or hidden CLI prompt. |
+| `certificate` | One to 64 leaf fingerprints. | Administrator password. | Issues one PEM containing one `urn:autobricks:certificate:<fingerprint>` URI SAN per target. |
 
 The CLI receives the issuance response through the socket and saves the returned fingerprint/token association before reporting successful credential capture. The credential record belongs to the invoking operating-system user, requires mode `0600` under a protected directory, and is not an application user account. Renewed tokens are saved against their new fingerprints; the old association is not overwritten with the new token. The daemon does not choose another caller's token based only on a supplied fingerprint.
 

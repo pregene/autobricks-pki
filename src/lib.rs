@@ -21,6 +21,6 @@ pub mod server;
 pub mod storage;
 pub mod transport;
 pub const PRODUCT: &str = "Autobricks PKI Server 1.0";
-pub const VERSION: &str = "1.0.132";
+pub const VERSION: &str = "1.1.135";
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Result<T> = std::result::Result<T, Error>;

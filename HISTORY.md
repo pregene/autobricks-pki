@@ -1,5 +1,14 @@
 # Development history
 
+## 1.1.135 — 2026-10-23
+
+- Added administrator-authorized creation of additional Intermediate CAs with the configured default or an explicit bounded `--days` value.
+- Added `cert.<baseDomain>` renewal-authorization certificates for one to 64 exact leaf fingerprints. Each permission is encoded as a URI SAN, while each renewal processes one fingerprint.
+- Reserved the `auth.<baseDomain>` and `cert.<baseDomain>` Intermediate CAs for their dedicated flows; general `create` requests cannot select either issuer by name or fingerprint.
+- Added the optional `auth_2fa` policy: disabled mode preserves saved-token renewal; enabled mode requires a valid, unrevoked authorization certificate issued by the `cert` CA.
+- Added PKI JSON retention configuration and platform library-name loading for the packaged COMM runtime.
+- Verified the Rust regression suite, macOS functional tests, and the Ubuntu amd64 deployed runtime while preserving the existing CA hierarchy and legacy client behavior.
+
 ## 1.0.127 — 2026-10-07
 
 - Updated shared client guides with platform-specific service, configuration, trust and file locations; added macOS command examples and clarified first-use Root trust verification.

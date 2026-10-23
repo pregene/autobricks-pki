@@ -57,6 +57,20 @@ impl Service {
     pub fn poll_renewal(&self, id: &str, token: &str) -> Result<RenewalResponse> {
         let old = self.db.metadata(id)?;
         self.authorize_download(&old, token)?;
+        self.poll_renewal_authorized(id)
+    }
+
+    pub fn poll_renewal_with_certificate(
+        &self,
+        id: &str,
+        authorization: &[u8],
+    ) -> Result<RenewalResponse> {
+        self.authorize_renewal_certificate(id, authorization)?;
+        self.poll_renewal_authorized(id)
+    }
+
+    fn poll_renewal_authorized(&self, id: &str) -> Result<RenewalResponse> {
+        let old = self.db.metadata(id)?;
         if old.revoked_at.is_some() {
             return Ok(RenewalResponse::state(409, "REVOKED", id));
         }
@@ -69,7 +83,7 @@ impl Service {
         if !self.db.is_superseded(id)? {
             return Ok(RenewalResponse::state(200, "VALID", id));
         }
-        let issued = self.renew(id, token)?;
+        let issued = self.renew_authorized(id)?;
         let mut response = RenewalResponse::state(200, "VALID", &issued.certificate.fingerprint);
         response.renewed = true;
         response.previous_fingerprint = Some(id.into());
@@ -80,6 +94,11 @@ impl Service {
     pub fn renew(&self, id: &str, token: &str) -> Result<Issued> {
         let old = self.db.metadata(id)?;
         self.authorize_download(&old, token)?;
+        self.renew_authorized(id)
+    }
+
+    fn renew_authorized(&self, id: &str) -> Result<Issued> {
+        let old = self.db.metadata(id)?;
         let timestamp = now();
         if old.revoked_at.is_some()
             || timestamp < old.validity.not_before

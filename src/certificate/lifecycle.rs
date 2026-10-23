@@ -19,14 +19,20 @@ use openssl::{
 impl Service {
     pub fn create(&self, mut request: Create) -> Result<Issued> {
         let issuer = self.db.issuer(&request.issuer)?;
+        let base_domain = String::from_utf8(
+            self.db
+                .setting("base_domain")?
+                .ok_or("missing installation baseDomain")?,
+        )?;
+        if [format!("auth.{base_domain}"), format!("cert.{base_domain}")]
+            .iter()
+            .any(|reserved| issuer.cn.eq_ignore_ascii_case(reserved))
+        {
+            return Err("auth and cert Intermediate CAs cannot issue general certificates".into());
+        }
         request.profile.common_name = super::common_name::leaf(&request.profile.common_name)?;
         if request.profile.kind.is_server() {
-            let domain = String::from_utf8(
-                self.db
-                    .setting("base_domain")?
-                    .ok_or("missing installation baseDomain")?,
-            )?;
-            super::common_name::server_dns(&mut request.profile, &issuer, &domain)?;
+            super::common_name::server_dns(&mut request.profile, &issuer, &base_domain)?;
         }
         let mut issued = self.db.transaction(|| {
             let duplicate: bool = self.db.conn.query_row(

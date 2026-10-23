@@ -73,11 +73,26 @@ fn tls_enrollment_route(r: &Request) -> bool {
 }
 fn route(s: &Service, r: &Request) -> Result<Response> {
     if r.method == "POST" && r.path == "/api/create-ca" {
-        return Ok(Response {
-            status: "501 Not Implemented",
-            content_type: "application/json",
-            body: br#"{"error":"Not implemented: additional Intermediate CA creation is unavailable in version 1.0"}"#.to_vec(),
-        });
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct CreateCaRequest {
+            name: String,
+            days: Option<u32>,
+        }
+        let request: CreateCaRequest = serde_json::from_slice(&r.body)?;
+        return json_response(s.create_ca(&request.name, request.days, bearer(r).as_bytes())?);
+    }
+    if r.method == "POST" && r.path == "/api/certificate" {
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct CertificateRequest {
+            fingerprints: Vec<String>,
+        }
+        let request: CertificateRequest = serde_json::from_slice(&r.body)?;
+        return Ok(file(
+            s.issue_renewal_authorization(&request.fingerprints, bearer(r).as_bytes())?,
+            "application/x-pem-file",
+        ));
     }
     if r.path == "/ocsp/" {
         if r.method != "POST" {
@@ -187,7 +202,7 @@ fn route(s: &Service, r: &Request) -> Result<Response> {
         }
         if matches!(
             r.path.as_str(),
-            "/api/renew" | "/api/renew-ca" | "/api/renew-admin"
+            "/api/renew" | "/api/renew-ca" | "/api/renew-admin" | "/api/renew-certificate"
         ) {
             #[derive(serde::Deserialize)]
             #[serde(deny_unknown_fields)]
@@ -202,7 +217,18 @@ fn route(s: &Service, r: &Request) -> Result<Response> {
                 "/api/renew-ca" => {
                     s.renew_intermediate(&request.fingerprint, bearer(r).as_bytes())?
                 }
-                _ => s.poll_renewal(&request.fingerprint, bearer(r))?,
+                "/api/renew-certificate" => {
+                    if !s.auth_2fa {
+                        return Err("auth_2fa is disabled".into());
+                    }
+                    s.poll_renewal_with_certificate(&request.fingerprint, bearer(r).as_bytes())?
+                }
+                _ => {
+                    if s.auth_2fa {
+                        return Err("renewal authorization certificate is required".into());
+                    }
+                    s.poll_renewal(&request.fingerprint, bearer(r))?
+                }
             };
             let conflict = outcome.result == 409;
             let mut response = json_response(outcome)?;

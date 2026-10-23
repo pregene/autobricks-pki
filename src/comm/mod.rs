@@ -15,6 +15,11 @@ const IPC_API: u32 = 2;
 const SERVICE_API: u32 = 1;
 const TRANSPORT_API: u32 = 2;
 
+#[cfg(target_os = "macos")]
+pub const LIBRARY_NAME: &str = "libautobricks_comm.dylib";
+#[cfg(not(target_os = "macos"))]
+pub const LIBRARY_NAME: &str = "libautobricks_comm.so";
+
 pub struct HttpRequest {
     pub method: String,
     pub path: String,

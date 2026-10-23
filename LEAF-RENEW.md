@@ -57,6 +57,25 @@ Ordinary `renew` creates a replacement only for a SUPERSEDED leaf. The old certi
 
 ## States and authorization
 
+### Optional renewal authorization certificate
+
+When the server configuration sets `auth_2fa` to `true`, saved-token renewal is disabled. An administrator first issues one authorization certificate for one or more leaf fingerprints:
+
+```sh
+abpki-cli certificate <fingerprint-1> <fingerprint-2> --pass
+```
+
+The command writes `certificate-<fingerprint-1>.pem`. It is issued by `cert.<baseDomain>` and contains one `urn:autobricks:certificate:<fingerprint>` URI SAN for every supplied target. The administrator password is required. Duplicate, malformed, unknown, revoked, CA, and more than 64 target fingerprints are rejected.
+
+Each renewal remains a separate operation even when the same authorization PEM permits several targets:
+
+```sh
+abpki-cli renew <fingerprint-1> --cert certificate-<fingerprint-1>.pem
+abpki-cli renew <fingerprint-2> --cert certificate-<fingerprint-1>.pem
+```
+
+The server verifies the authorization certificate signature, current validity, revocation state, `cert` CA issuer, and the exact requested fingerprint URI SAN. A permission for one fingerprint never authorizes another. When `auth_2fa` is `false`, the existing saved-token command remains the active path and `--cert` is rejected.
+
 | Operation | State | Result |
 | --- | --- | --- |
 | Normal renew | VALID | Successful no-op; no certificate or token is created. |

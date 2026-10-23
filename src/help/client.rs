@@ -20,6 +20,13 @@ pub(super) const OPERATIONS: &[Operation] = &[
         example: "abpki-cli daemon --config '/Library/Application Support/Autobricks PKI/client.json'",
     },
     Operation {
+        name: "certificate",
+        usage: "certificate FINGERPRINT [FINGERPRINT ...] --pass [PASSWORD]",
+        description: "Issue a renewal authorization certificate for one or more leaf certificates.",
+        details: "Arguments:\n  FINGERPRINT\n      One to 64 leaf certificate fingerprints. Each fingerprint is encoded as an independent URI SAN permission.\n\nOptions:\n  --pass [PASSWORD]\n      Required administrator password. Omit its value to enter it at a hidden terminal prompt.\n\nOutput:\n  certificate-<first-fingerprint>.pem\n\nThe certificate is issued by cert.<baseDomain> and contains urn:autobricks:certificate:<fingerprint> for every authorized target. Existing output files are not overwritten.",
+        example: "abpki-cli certificate <fingerprint> --pass",
+    },
+    Operation {
         name: "create",
         usage: "create",
         description: "Issue a server or client certificate using a JSON request from standard input.",
@@ -89,9 +96,9 @@ pub(super) const OPERATIONS: &[Operation] = &[
     },
     Operation {
         name: "renew",
-        usage: "renew FINGERPRINT [--pass [PASSWORD]]",
-        description: "Poll leaf renewal or mark a certificate SUPERSEDED with --pass.",
-        details: "Arguments:\n  FINGERPRINT\n      Existing leaf or Intermediate CA fingerprint.\n\nWithout --pass: use the saved leaf token. VALID returns renewed=false; SUPERSEDED issues a new VALID leaf with renewed=true; REVOKED returns result 409.\nWith --pass: verify the administrator password and mark VALID as SUPERSEDED without issuance. Bare --pass prompts securely.\n\nNew certificates preserve the full original validity duration. Only renewed=true responses save a new download token; normal output hides the token.\nRetirement: seven days for leaves and 48 days for Intermediate CAs after the first SUPERSEDED transition. No duration parameter.",
+        usage: "renew FINGERPRINT [--cert PATH | --pass [PASSWORD]]",
+        description: "Renew one leaf certificate or mark a certificate SUPERSEDED with --pass.",
+        details: "Arguments:\n  FINGERPRINT\n      One existing leaf or Intermediate CA fingerprint. Renewal is always processed one fingerprint at a time.\n\nWithout an option: use the saved leaf token when auth_2fa is disabled.\nWith --cert PATH: use a cert.<baseDomain>-issued authorization certificate whose URI SAN permits this fingerprint; required when auth_2fa is enabled.\nWith --pass: verify the administrator password and mark VALID as SUPERSEDED without issuance. Bare --pass prompts securely.\n\nNew certificates preserve the full original validity duration. Only renewed=true responses save a new download token; normal output hides the token.\nRetirement: seven days for leaves and 48 days for Intermediate CAs after the first SUPERSEDED transition. No duration parameter.",
         example: "abpki-cli renew <fingerprint>",
     },
     Operation {
@@ -110,10 +117,10 @@ pub(super) const OPERATIONS: &[Operation] = &[
     },
     Operation {
         name: "create-ca",
-        usage: "create-ca",
-        description: "Not implemented in version 1.0; additional CA creation is reserved for 1.1.",
-        details: "This operation cannot create a CA in version 1.0.\nInstallation still creates the six default Intermediate CAs.",
-        example: "abpki-cli create-ca --help",
+        usage: "create-ca NAME [--days DAYS] --pass [PASSWORD]",
+        description: "Create an Intermediate CA using the administrator password.",
+        details: "Arguments:\n  NAME\n      Intermediate CA label. The installation baseDomain is appended automatically.\n\nOptions:\n  --days DAYS\n      Requested validity in days. When omitted, use the installed Intermediate CA policy default. The supplied value is used exactly and must not exceed the policy maximum.\n  --pass [PASSWORD]\n      Required administrator password. Omit its value to enter it at a hidden terminal prompt.",
+        example: "abpki-cli create-ca auth --days 358 --pass",
     },
 ];
 

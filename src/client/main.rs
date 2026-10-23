@@ -21,12 +21,6 @@ fn run() -> Result<()> {
     if command == "configure" {
         return client::macos::configure(&args);
     }
-    if command == "create-ca" {
-        return Err(
-            "Not implemented: additional Intermediate CA creation is unavailable in version 1.0"
-                .into(),
-        );
-    }
     if command == "daemon" {
         if args.len() != 2 || args[0] != "--config" {
             return Err("daemon requires --config PATH".into());
@@ -43,11 +37,30 @@ fn run() -> Result<()> {
         });
     }
     let admin_renewal = command == "renew" && admin.is_some();
-    if admin.is_some() && !matches!(command.as_str(), "revoke" | "renew" | "create-ca") {
+    let mut renewal_certificate = None;
+    if let Some(pos) = args.iter().position(|a| a == "--cert") {
+        args.remove(pos);
+        if pos >= args.len() {
+            return Err("--cert requires a certificate path".into());
+        }
+        renewal_certificate = Some(args.remove(pos));
+    }
+    if renewal_certificate.is_some() && command != "renew" {
+        return Err("--cert is only supported by renew".into());
+    }
+    if admin.is_some()
+        && !matches!(
+            command.as_str(),
+            "revoke" | "renew" | "create-ca" | "certificate"
+        )
+    {
         return Err("--pass is only supported by administrator operations".into());
     }
-    if matches!(command.as_str(), "create-ca" | "revoke") && admin.is_none() {
+    if matches!(command.as_str(), "create-ca" | "revoke" | "certificate") && admin.is_none() {
         return Err("--pass is required for this command".into());
+    }
+    if command == "renew" && admin.is_some() && renewal_certificate.is_some() {
+        return Err("renew accepts either --pass or --cert, not both".into());
     }
 
     if matches!(command.as_str(), "list" | "list-ca") {
@@ -83,7 +96,27 @@ fn run() -> Result<()> {
             output = Some(format!("{}.tar.gz", args[1]));
             format!("/api/download/{}", client::segment(&args[0])?)
         }
-        "create" | "create-ca" if args.is_empty() => {
+        "create-ca" if !args.is_empty() => {
+            method = "POST";
+            let name = args.remove(0);
+            let mut days = None;
+            if !args.is_empty() {
+                if args.len() != 2 || args[0] != "--days" {
+                    return Err("create-ca requires NAME [--days DAYS] --pass".into());
+                }
+                days = Some(args[1].parse::<u32>()?);
+            }
+            body = serde_json::to_vec(&serde_json::json!({"name":name,"days":days}))?;
+            "/api/create-ca".to_owned()
+        }
+        "certificate" if !args.is_empty() => {
+            method = "POST";
+            let first = args[0].clone();
+            body = serde_json::to_vec(&serde_json::json!({"fingerprints":args}))?;
+            output = Some(format!("certificate-{first}.pem"));
+            "/api/certificate".to_owned()
+        }
+        "create" if args.is_empty() => {
             method = "POST";
             std::io::stdin().take(1_048_577).read_to_end(&mut body)?;
             if body.len() > 1_048_576 {
@@ -94,7 +127,9 @@ fn run() -> Result<()> {
         "revoke" | "renew" if args.len() == 1 => {
             method = "POST";
             body = serde_json::to_vec(&serde_json::json!({"fingerprint":args[0]}))?;
-            if admin_renewal {
+            if renewal_certificate.is_some() {
+                "/api/renew-certificate".to_owned()
+            } else if admin_renewal {
                 "/api/renew-admin".to_owned()
             } else {
                 format!("/api/{command}")
@@ -102,7 +137,9 @@ fn run() -> Result<()> {
         }
         _ => return Err("invalid command or arguments; see --help".into()),
     };
-    let credential = if command == "revoke" || admin_renewal {
+    let credential = if let Some(path) = renewal_certificate {
+        Some(std::fs::read_to_string(path)?)
+    } else if matches!(command.as_str(), "revoke" | "create-ca" | "certificate") || admin_renewal {
         admin
     } else if matches!(command.as_str(), "download" | "renew") {
         Some(client::credentials::load(&args[0])?)

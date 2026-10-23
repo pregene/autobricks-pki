@@ -58,6 +58,7 @@ impl Fixture {
         });
         std::fs::write(temp.path().join("truelog.env"), "AB_WORM_RETAIN_DAYS=365\n").unwrap();
         let service = Service {
+            auth_2fa: false,
             background_delivery: false,
             db: Database::open(&temp.path().join("pki.sqlite"), &worm).unwrap(),
             worm: Worm::new(&worm).unwrap(),
@@ -232,7 +233,7 @@ fn renewal_and_authorization() {
         renewed.certificate.fingerprint
     );
     assert!(f.service.create_ca("extra", None, b"wrong").is_err());
-    assert!(f.service.create_ca("extra", None, ADMIN).is_err());
+    assert!(f.service.create_ca("extra", None, ADMIN).is_ok());
     assert!(f.service.create_ca("extra", None, ADMIN).is_err());
     assert!(
         f.service
@@ -245,6 +246,111 @@ fn renewal_and_authorization() {
             )
             .is_err()
     );
+}
+#[test]
+fn renewal_authorization_certificate_supports_multiple_exact_targets() {
+    let f = Fixture::new();
+    f.service.create_ca("cert", None, ADMIN).unwrap();
+    let first = f.issue(47).certificate;
+    let second = f.issue(47).certificate;
+    let unrelated = f.issue(47).certificate;
+    let targets = vec![first.fingerprint.clone(), second.fingerprint.clone()];
+    let pem = f
+        .service
+        .issue_renewal_authorization(&targets, ADMIN)
+        .unwrap();
+    let certificate = X509::from_pem(&pem).unwrap();
+    let uris: Vec<_> = certificate
+        .subject_alt_names()
+        .unwrap()
+        .iter()
+        .filter_map(|name| name.uri().map(str::to_owned))
+        .collect();
+    assert_eq!(
+        uris,
+        targets
+            .iter()
+            .map(|target| format!("urn:autobricks:certificate:{target}"))
+            .collect::<Vec<_>>()
+    );
+    for target in &targets {
+        f.service
+            .poll_renewal_with_certificate(target, &pem)
+            .unwrap();
+    }
+    assert!(
+        f.service
+            .poll_renewal_with_certificate(&unrelated.fingerprint, &pem)
+            .is_err()
+    );
+    assert!(
+        f.service
+            .issue_renewal_authorization(&targets, b"wrong")
+            .is_err()
+    );
+    assert!(
+        f.service
+            .issue_renewal_authorization(
+                &[first.fingerprint.clone(), first.fingerprint.clone()],
+                ADMIN
+            )
+            .is_err()
+    );
+    assert!(f.service.issue_renewal_authorization(&[], ADMIN).is_err());
+    assert!(
+        f.service
+            .issue_renewal_authorization(&vec![first.fingerprint.clone(); 65], ADMIN)
+            .is_err()
+    );
+    assert!(
+        f.service
+            .issue_renewal_authorization(&[f.service.db.root_id().unwrap()], ADMIN)
+            .is_err()
+    );
+    f.service.revoke(&unrelated.fingerprint, ADMIN).unwrap();
+    assert!(
+        f.service
+            .issue_renewal_authorization(&[unrelated.fingerprint], ADMIN)
+            .is_err()
+    );
+    let authorization_fingerprint =
+        autobricks_pki::certificate::crypto::fingerprint(&certificate).unwrap();
+    f.service.revoke(&authorization_fingerprint, ADMIN).unwrap();
+    assert!(
+        f.service
+            .poll_renewal_with_certificate(&first.fingerprint, &pem)
+            .is_err()
+    );
+}
+
+#[test]
+fn reserved_auth_and_cert_cas_reject_general_creation() {
+    let f = Fixture::new();
+    let auth = f.service.create_ca("auth", None, ADMIN).unwrap();
+    let cert = f.service.create_ca("cert", None, ADMIN).unwrap();
+    for issuer in [auth.cn, auth.fingerprint, cert.cn, cert.fingerprint] {
+        let result = f.service.create(Create {
+            issuer,
+            profile: LeafProfile {
+                extra: Default::default(),
+                kind: LeafKind::Client,
+                common_name: "reserved-ca-bypass".into(),
+                dns_names: vec![],
+                ip_addresses: vec![],
+                uri_sans: vec![],
+                validity: Validity::new(now(), 47, None).unwrap(),
+            },
+        });
+        let error = match result {
+            Ok(_) => panic!("reserved issuer accepted a general certificate request"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("cannot issue general certificates")
+        );
+    }
 }
 #[test]
 fn malformed_ocsp_is_protocol_error() {
@@ -409,7 +515,6 @@ fn binaries_and_openssl_ocsp_interoperate() {
             .env("ABPKI_WORM", directory.join("worm"))
             .env("AUTOBRICKS_DNS_SOCKET", &f.service.dns.socket)
             .env("ABPKI_TRUELOG_CLI", &f.service.truelog.executable)
-            .env("ABPKI_TRUELOG_CONFIG", f._temp.path().join("truelog.env"))
             .env("ABPKI_ORIGIN", &origin)
             .env("ABPKI_BIND", "127.0.0.1")
             .env("ABPKI_TLS_PORT", management_address.port().to_string())
@@ -633,7 +738,6 @@ fn local_initialization_and_root_export() {
             .env("ABPKI_WORM", &worm)
             .env("AUTOBRICKS_DNS_SOCKET", &f.service.dns.socket)
             .env("ABPKI_TRUELOG_CLI", &f.service.truelog.executable)
-            .env("ABPKI_TRUELOG_CONFIG", f._temp.path().join("truelog.env"))
             .env("ABPKI_ORIGIN", "https://second.example.internal")
             .env(
                 "ABPKI_ADMIN_PASSWORD",
@@ -836,10 +940,6 @@ fn installation_prompts_for_base_domain_and_builds_ca_subjects() {
                 String::from_utf8_lossy(ADMIN).as_ref(),
             )
             .env("ABPKI_TRUELOG_CLI", &fixture.service.truelog.executable)
-            .env(
-                "ABPKI_TRUELOG_CONFIG",
-                fixture._temp.path().join("truelog.env"),
-            )
             .env("AUTOBRICKS_DNS_SOCKET", &fixture.service.dns.socket)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -999,31 +1099,33 @@ fn intermediate_name_limit_excludes_domain_suffix() {
 }
 
 #[test]
-fn additional_ca_creation_is_unavailable_without_side_effects() {
+fn additional_ca_creation_requires_admin_and_honors_days() {
     let f = Fixture::new();
     let before = f.service.db.all().unwrap().len();
-    let pending = f.service.db.pending().unwrap();
-    for admin in [ADMIN, b"wrong".as_slice()] {
-        assert!(
-            f.service
-                .create_ca("extra", None, admin)
-                .unwrap_err()
-                .to_string()
-                .contains("Not implemented")
-        );
-    }
+    assert!(f.service.create_ca("extra", Some(30), b"wrong").is_err());
+    let created = f.service.create_ca("extra", Some(30), ADMIN).unwrap();
+    assert_eq!(created.cn, "extra.autobricks.internal");
+    assert_eq!(
+        created.validity.not_after - created.validity.not_before,
+        30 * 86_400
+    );
+    assert!(f.service.create_ca("extra", None, ADMIN).is_err());
+    assert!(f.service.create_ca("too-long", Some(359), ADMIN).is_err());
     let response = autobricks_pki::server::routes::dispatch(
         &f.service,
         autobricks_pki::server::routes::Request {
             method: "POST".into(),
             path: "/api/create-ca".into(),
-            headers: Default::default(),
-            body: vec![],
+            headers: [(
+                "authorization".into(),
+                format!("Bearer {}", String::from_utf8_lossy(ADMIN)),
+            )]
+            .into(),
+            body: br#"{"name":"auth"}"#.to_vec(),
         },
     );
-    assert_eq!(response.status, "501 Not Implemented");
-    assert_eq!(f.service.db.all().unwrap().len(), before);
-    assert_eq!(f.service.db.pending().unwrap(), pending);
+    assert_eq!(response.status, "200 OK");
+    assert_eq!(f.service.db.all().unwrap().len(), before + 2);
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_abpki-cli"))
         .arg("create-ca")
         .env_clear()
@@ -1033,14 +1135,14 @@ fn additional_ca_creation_is_unavailable_without_side_effects() {
     assert!(
         String::from_utf8(output.stderr)
             .unwrap()
-            .contains("Not implemented")
+            .contains("--pass is required")
     );
 }
 
 #[test]
 fn hourly_scheduler_renews_due_ca_and_persists_attempt() {
     let f = Fixture::new();
-    let old = f.seed_intermediate("scheduled", 6);
+    let old = f.service.create_ca("scheduled", Some(47), ADMIN).unwrap();
     let timestamp = now();
     assert!(f.service.run_hourly_renewal(timestamp).unwrap());
     let all = f.service.db.all().unwrap();
