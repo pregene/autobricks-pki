@@ -16,17 +16,18 @@ Both repository directories are ignored by Git. Service installation paths are s
 
 | Path | Contents and responsibility | Ownership and permissions |
 | --- | --- | --- |
-| `/usr/bin/abpkid` | Server executable; started with `serve` | Root-owned, executable (`0755`) |
-| `/usr/bin/abpki-cli` | Connecting client executable | Root-owned, executable (`0755`) |
+| `/usr/bin/autobricks/abpkid` | Server executable; started with `serve` | Root-owned, executable (`0755`) |
+| `/usr/bin/autobricks/abpki-cli` | Connecting client executable | Root-owned, executable (`0755`) |
+| `/usr/bin/abpkid`, `/usr/bin/abpki-cli` | Public command links to the canonical executable files | Package-owned symbolic links |
 | `/lib/systemd/system/abpkid.service` | Package-provided systemd unit | Root-owned (`0644`) |
-| `/etc/autobricks-pki/` | Service configuration directory | Root-owned (`0750`) |
-| `/etc/autobricks-pki/abpkid.env` | Environment settings supplied to the process by systemd | Root-owned (`0600`) |
-| `/var/lib/autobricks-pki/` | Mutable PKI state directory | Owned by the autobricks-pki operating-system account (`0700`) |
+| `/etc/autobricks/pki/` | Shared PKI server/client configuration root; secrets retain restrictive file modes | Root-owned (`0755`) |
+| `/etc/autobricks/pki/abpkid.env` | Environment settings supplied to the process by systemd | Root-owned (`0600`) |
+| `/var/lib/autobricks/pki/` | Mutable PKI state directory | Owned by the autobricks-pki operating-system account (`0700`) |
 | `/usr/lib/autobricks/libautobricks_certificate.so` | Certificate-generation dynamic library loaded by `abpkid` | Server package file (`0755`) |
-| `/var/lib/autobricks-pki/abpki.sqlite` | Certificate/CRL metadata and WORM paths, revocation state, password hash, key encryption password, token hashes, and pending delivery records | Owned by the service account (`0600`) |
-| `/var/lib/autobricks-pki/install.json` | Installation domain and DNS registration IP for reconfiguration | Service account (`0600`) |
-| `/etc/autobricks-pki/account-owned` | Marks the service account as package-owned for purge | Root-owned |
-| `/var/lib/autobricks-pki/abpki.sqlite-journal` | SQLite rollback journal created and removed during database transactions | Managed by SQLite in the protected state directory |
+| `/var/lib/autobricks/pki/abpki.sqlite` | Certificate/CRL metadata and WORM paths, revocation state, password hash, key encryption password, token hashes, and pending delivery records | Owned by the service account (`0600`) |
+| `/var/lib/autobricks/pki/install.json` | Installation domain and DNS registration IP for reconfiguration | Service account (`0600`) |
+| `/etc/autobricks/pki/server-account-owned` | Marks the server service account as package-owned for purge | Root-owned |
+| `/var/lib/autobricks/pki/abpki.sqlite-journal` | SQLite rollback journal created and removed during database transactions | Managed by SQLite in the protected state directory |
 | `/mnt/worm-storage/<installation-timestamp>/pki/` | Certificate and private-key archive directory on the TrueLog-provided WORM mount | Service account needs directory traversal and file creation/append access |
 | `/run/autobricks-dns/autobricks-dns.sock` | External DNS control socket | Managed by Autobricks DNS; service account needs explicit socket access |
 
@@ -39,7 +40,7 @@ Initialization and normal service execution use the same state paths and compati
 The reference service environment contains:
 
 ```ini
-ABPKI_DATABASE=/var/lib/autobricks-pki/abpki.sqlite
+ABPKI_DATABASE=/var/lib/autobricks/pki/abpki.sqlite
 ABPKI_INSTALLED_AT=1790467200
 ABPKI_WORM=/mnt/worm-storage/1790467200/pki
 ABPKI_ORIGIN=https://pki.example.internal
@@ -59,10 +60,10 @@ The SQLite parent directory and WORM artifact directory must exist before `init`
 
 ## SQLite state
 
-The service database path is `/var/lib/autobricks-pki/abpki.sqlite`, configured with `ABPKI_DATABASE`. Mutable database files and immutable archives occupy separate storage locations:
+The service database path is `/var/lib/autobricks/pki/abpki.sqlite`, configured with `ABPKI_DATABASE`. Mutable database files and immutable archives occupy separate storage locations:
 
 ```text
-/var/lib/autobricks-pki/              # Mutable local storage
+/var/lib/autobricks/pki/              # Mutable local storage
     abpki.sqlite                    # Operational database
     abpki.sqlite-journal            # Temporary SQLite rollback journal
 
@@ -81,7 +82,7 @@ SQLite retains certificate identities and lifecycle state, issuer relationships,
 
 ## WORM artifacts
 
-The installer saves the UTC Unix-second timestamp in `ABPKI_INSTALLED_AT` and the complete archive path in `ABPKI_WORM` in `/etc/autobricks-pki/abpkid.env`. Restarts and upgrades preserve this path. A fresh installation after purge uses a new timestamp namespace; retained WORM files remain untouched.
+The installer saves the UTC Unix-second timestamp in `ABPKI_INSTALLED_AT` and the complete archive path in `ABPKI_WORM` in `/etc/autobricks/pki/abpkid.env`. Restarts and upgrades preserve this path. A fresh installation after purge uses a new timestamp namespace; retained WORM files remain untouched.
 
 Certificate and CRL artifacts use the following installation-specific layout:
 
@@ -117,7 +118,7 @@ Download archives are constructed in memory. CRL PEM files are read from their p
 
 ## Logs and runtime files
 
-Audit events are submitted through `/usr/bin/ab-truelog-cli write --service abpkid --data <event-json>`. TrueLog creates and manages its own appendable WORM log files, including rotation, retention integration, and checksum chains. PKI does not create audit JSON files or append to TrueLog-managed files. With TrueLog 0.3.55 and its standard mount, the daily log path is `/mnt/worm-storage/abpkid/truelog-YYYY-MM-DD.log`; the receiving TrueLog server controls its location and date. See the [TrueLog client interface](https://github.com/pregene/autobricks-log/blob/main/TRUELOG.md#write-records-through-the-client). Process startup and error messages use standard output and standard error; a systemd unit can capture these in the journal. `abpkid` does not create a separate `/var/log/autobricks-pki` directory, PID file, or server Unix socket. The local client service separately owns `/run/autobricks-pki-client/client.sock`.
+Audit events are submitted through `/usr/bin/ab-truelog-cli write --service abpkid --data <event-json>`. TrueLog creates and manages its own appendable WORM log files, including rotation, retention integration, and checksum chains. PKI does not create audit JSON files or append to TrueLog-managed files. With TrueLog 0.3.55 and its standard mount, the daily log path is `/mnt/worm-storage/abpkid/truelog-YYYY-MM-DD.log`; the receiving TrueLog server controls its location and date. See the [TrueLog client interface](https://github.com/pregene/autobricks-log/blob/main/TRUELOG.md#write-records-through-the-client). Process startup and error messages use standard output and standard error; a systemd unit can capture these in the journal. Comm owns the server socket `/var/run/autobricks/pki.sock`; the local client service separately owns `/var/run/autobricks/pki-client.sock`.
 
 The DNS control socket belongs to Autobricks DNS. PKI connects to it without creating, replacing, or deleting it. TrueLog owns the lifecycle of its WORM mount.
 
@@ -139,9 +140,9 @@ SQLite backup copies may be placed on WORM as separate artifacts. A database bac
 
 ```mermaid
 flowchart TD
-    Unit[systemd service] --> Binary["/usr/bin/abpkid"]
-    Config["/etc/autobricks-pki/abpkid.env"] -->|Environment| Binary
-    Binary -->|Metadata and secrets| DB["/var/lib/autobricks-pki/abpki.sqlite"]
+    Unit[systemd service] --> Binary["/usr/bin/autobricks/abpkid"]
+    Config["/etc/autobricks/pki/abpkid.env"] -->|Environment| Binary
+    Binary -->|Metadata and secrets| DB["/var/lib/autobricks/pki/abpki.sqlite"]
     DB --> Journal[SQLite rollback journal]
     Binary -->|Certificates and private keys| WORM["/mnt/worm-storage/&lt;installation-timestamp&gt;/pki/"]
     Binary -->|Audit events| CLI[ab-truelog-cli]
@@ -158,10 +159,10 @@ flowchart TD
 
 | Path | Purpose and permissions |
 | --- | --- |
-| `/etc/autobricks-pki-client/client.json` | Remote endpoint, ports, socket, and OS trust bundle; root-owned, client group-readable, mode `0640` |
-| `/etc/autobricks-pki-client/ownership.json` | Owned Root checksum and installer UID; root-only mode `0600` |
+| `/etc/autobricks/pki/client.json` | Remote endpoint, ports, socket, and OS trust bundle; root-owned, client group-readable, mode `0640` |
+| `/etc/autobricks/pki/ownership.json` | Owned Root checksum and installer UID; root-only mode `0600` |
 | `/usr/local/share/ca-certificates/autobricks-pki-client.crt` | Enrolled public Root CA; mode `0644` |
-| `/run/autobricks-pki-client/client.sock` | Local request socket; mode `0660`, client group and installer UID access |
+| `/var/run/autobricks/pki-client.sock` | Local request socket; mode `0660`, client group and installer UID access |
 | `~/.abpki/<fingerprint>` | Caller-owned certificate token; mode `0600` under a `0700` directory |
 | `/lib/systemd/system/abpki-cli.service` | Local client service included in both packages |
 
@@ -173,7 +174,7 @@ flowchart TD
 | `/Library/LaunchDaemons/com.autobricks.pki.client.plist` | launchd service; root-owned, mode `0644` |
 | `/Library/Application Support/Autobricks PKI/client.json` | Client connection settings; root-owned, mode `0600` |
 | `/Library/Application Support/Autobricks PKI/root.crt` | Enrolled public Root certificate; root-owned, mode `0644` |
-| `/var/run/autobricks-pki-client/client.sock` | Local request socket; mode `0660`, root owner and `staff` group |
+| `/var/run/autobricks/pki-client.sock` | Local request socket; mode `0660`, root owner and `staff` group |
 | `/var/log/autobricks-pki-client.log` | Client service output and errors; root-owned, mode `0600` |
 | `~/.abpki/<fingerprint>` | Caller-owned certificate token; mode `0600` under a `0700` directory |
 

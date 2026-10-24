@@ -14,13 +14,14 @@ Install and configure `autobricks-truelog-cli` on the PKI host, with the PKI ser
 | `AUTOBRICKS_CERTIFICATE_LIBRARY` | Optional explicit path to the Autobricks Certificate dynamic library | Installed `/usr/lib/autobricks/libautobricks_certificate.so` is discovered automatically |
 | `AUTOBRICKS_AUTH_LIBRARY` | Optional explicit path to the Autobricks Auth dynamic library | Installed `/usr/lib/autobricks/libautobricks_auth.so` is discovered automatically |
 | `ABPKI_INSTALLED_AT` | Installation UTC Unix timestamp in seconds, retained by the installer | Generated on fresh installation |
+| `ABPKI_CREDENTIAL_DIRECTORY` | Protected token directory for service-owned CLI renewal calls | Calling user's `~/.abpki` when unset |
 | `ABPKI_WORM` | Existing directory on the WORM mount for certificates and private-key archives | Required; saved by the installer |
 | `ABPKI_TRUELOG_CLI` | TrueLog client executable for audit submission as service `abpkid` | `/usr/bin/ab-truelog-cli` |
 | `ABPKI_ORIGIN` | Public HTTPS origin using the registered DNS name; published URLs use `ABPKI_HTTPS_PORT` | `https://pki.<baseDomain>` from initialization or SQLite |
 | `ABPKI_BIND` | Listen IP address shared by both listeners, without a port | `0.0.0.0` |
 | `ABPKI_TLS_PORT` | Certificate management TLS port | `5545` |
 | `ABPKI_HTTPS_PORT` | Public HTTPS port | `5546` |
-| `ABPKI_COMM_CONFIG` | Comm runtime JSON containing dynamic-library directory and IPC, HTTPS, and structured connection settings | `/etc/autobricks-pki/comm.json` |
+| `ABPKI_COMM_CONFIG` | Comm runtime JSON containing dynamic-library directory and IPC, HTTPS, and structured connection settings | `/etc/autobricks/pki/comm.json` |
 | `AUTOBRICKS_DNS_SOCKET` | Autobricks DNS Unix control socket | `/run/autobricks-dns/autobricks-dns.sock` |
 | `ABPKI_ADMIN_PASSWORD` | Single administrator password used by `init` | Required for initialization |
 
@@ -30,10 +31,10 @@ Comm connection ownership is externalized in `comm.json`. Its `library_directory
 
 ## Initialization and service operation
 
-The path below illustrates an installation-generated namespace. Packaged installations read the saved values from `/etc/autobricks-pki/abpkid.env`; do not reuse this example timestamp for another installation.
+The path below illustrates an installation-generated namespace. Packaged installations read the saved values from `/etc/autobricks/pki/abpkid.env`; do not reuse this example timestamp for another installation.
 
 ```sh
-export ABPKI_DATABASE=/var/lib/autobricks-pki/abpki.sqlite
+export ABPKI_DATABASE=/var/lib/autobricks/pki/abpki.sqlite
 export ABPKI_INSTALLED_AT=1790467200
 export ABPKI_WORM=/mnt/worm-storage/1790467200/pki
 export ABPKI_ORIGIN=https://pki.example.internal
@@ -68,9 +69,9 @@ The local PKI client service owns remote connections. Users invoke `abpki-cli` c
 
 ### Installation settings
 
-Linux client installation collects the PKI server IP address or DNS name and management TLS port, downloads the Root CA from the configured public HTTPS endpoint, registers it in the OS trust store, and writes `/etc/autobricks-pki-client/client.json`. It starts the local client service after configuration succeeds. The remote endpoint is explicit; the CLI does not guess an address from the certificate request.
+Linux client installation collects the PKI server IP address or DNS name and management TLS port, downloads the Root CA from the configured public HTTPS endpoint, registers it in the OS trust store, and writes `/etc/autobricks/pki/client.json`. It starts the local client service after configuration succeeds. The remote endpoint is explicit; the CLI does not guess an address from the certificate request.
 
-macOS clients use launchd, `/Library/Application Support/Autobricks PKI/client.json`, `/var/run/autobricks-pki-client/client.sock`, and native macOS certificate trust. See [macOS client installation and usage](macos-client.md). The local request and remote TLS protocols are shared across platforms.
+macOS clients use launchd, `/Library/Application Support/Autobricks PKI/client.json`, `/var/run/autobricks/pki-client.sock`, and native macOS certificate trust. See [macOS client installation and usage](macos-client.md). The local request and remote TLS protocols are shared across platforms.
 
 The Linux connection section has this form:
 
@@ -79,7 +80,7 @@ The Linux connection section has this form:
   "server": "192.0.2.10",
   "port": 5545,
   "https_port": 5546,
-  "unix_socket": "/run/autobricks-pki-client/client.sock",
+  "unix_socket": "/var/run/autobricks/pki-client.sock",
   "ca": "/etc/ssl/certs/ca-certificates.crt"
 }
 ```
@@ -122,7 +123,7 @@ Tokens are stored at `~/.abpki/<fingerprint>` in the invoking user's mode-0700 d
 | `abpki-cli` | Parse command arguments or request JSON, call the local socket, print results, and save downloaded files. |
 | `abpkid` | Validate certificate operation inputs and enforce administrator/token authorization. |
 
-The command and daemon share `abpki-cli`; on Linux, `abpki-cli.service` invokes `daemon --config /etc/autobricks-pki-client/client.json`. `abpki-client` denotes the local client service; its executable is `abpki-cli`.
+The command and daemon share `abpki-cli`; on Linux, `abpki-cli.service` invokes `daemon --config /etc/autobricks/pki/client.json`. `abpki-client` denotes the local client service; its executable is `abpki-cli`.
 
 ```text
 Installation:

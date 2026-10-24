@@ -76,7 +76,7 @@ current authorization decision maintained by Autobricks Auth.
 ```
 
 Packaged services may set the equivalent `ABPKI_AUTH_SUPPORT=true` environment
-value in `/etc/autobricks-pki/abpkid.env`. The installer writes `false` by
+value in `/etc/autobricks/pki/abpkid.env`. The installer writes `false` by
 default and preserves an existing valid setting during reconfiguration.
 
 Autobricks Auth has its own installed configuration. PKI does not copy or

@@ -138,11 +138,12 @@ fn run() -> Result<()> {
     comm_config
         .as_object()
         .ok_or("Comm configuration root must be a JSON object")?;
+    let comm_library = autobricks_pki::comm::library_path(&comm_config)?;
     let ipc_service = service.clone();
     let http_service = service.clone();
     let structured_service = service.clone();
     let _comm = autobricks_pki::comm::Runtime::start(
-        std::path::Path::new(autobricks_pki::comm::LIBRARY_NAME),
+        &comm_library,
         &serde_json::to_string(&comm_config)?,
         move |payload| dispatch_ipc(&ipc_service, payload),
         move |request| dispatch_http(&http_service, request),

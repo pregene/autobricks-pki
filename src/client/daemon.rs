@@ -18,9 +18,9 @@ use std::{
 };
 
 #[cfg(not(target_os = "macos"))]
-pub const SOCKET: &str = "/run/autobricks-pki-client/client.sock";
+pub const SOCKET: &str = "/var/run/autobricks/pki-client.sock";
 #[cfg(not(target_os = "macos"))]
-pub const CONFIG: &str = "/etc/autobricks-pki-client/client.json";
+pub const CONFIG: &str = "/etc/autobricks/pki/client.json";
 #[cfg(target_os = "macos")]
 pub const SOCKET: &str = super::macos::SOCKET;
 #[cfg(target_os = "macos")]

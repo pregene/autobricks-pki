@@ -24,7 +24,7 @@ abpki-cli list-ca
 abpki-cli --help
 ```
 
-The service uses `/Library/Application Support/Autobricks PKI/client.json` and `/var/run/autobricks-pki-client/client.sock`. Members of the macOS `staff` group can call the socket. The launchd label is `com.autobricks.pki.client`; service logs use `/var/log/autobricks-pki-client.log`.
+The service uses `/Library/Application Support/Autobricks PKI/client.json` and `/var/run/autobricks/pki-client.sock`. Members of the macOS `staff` group can call the socket. The launchd label is `com.autobricks.pki.client`; service logs use `/var/log/autobricks-pki-client.log`.
 
 ## Usage
 

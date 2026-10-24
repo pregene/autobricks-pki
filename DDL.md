@@ -1,6 +1,6 @@
 # Stored certificate information
 
-Autobricks PKI Server 1.0 retains certificate identities, lifecycle state, issuer relationships and delivery state in SQLite. The database is configured by `ABPKI_DATABASE`; the installed default is `/var/lib/autobricks-pki/abpki.sqlite`.
+Autobricks PKI Server 1.0 retains certificate identities, lifecycle state, issuer relationships and delivery state in SQLite. The database is configured by `ABPKI_DATABASE`; the installed default is `/var/lib/autobricks/pki/abpki.sqlite`.
 
 The live database and its working files stay on mutable storage. Certificate, encrypted private-key and CRL PEM files reside on WORM. Database access is restricted to the service account with mode `0600`.
 

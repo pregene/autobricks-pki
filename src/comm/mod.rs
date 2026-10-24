@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     ffi::{CStr, CString, c_char, c_void},
     panic::{AssertUnwindSafe, catch_unwind},
-    path::Path,
+    path::{Path, PathBuf},
     ptr,
     sync::Arc,
 };
@@ -19,6 +19,16 @@ const TRANSPORT_API: u32 = 2;
 pub const LIBRARY_NAME: &str = "libautobricks_comm.dylib";
 #[cfg(not(target_os = "macos"))]
 pub const LIBRARY_NAME: &str = "libautobricks_comm.so";
+
+pub fn library_path(config: &serde_json::Value) -> Result<PathBuf, String> {
+    config
+        .get("library_directory")
+        .and_then(serde_json::Value::as_str)
+        .map(Path::new)
+        .filter(|path| path.is_absolute())
+        .map(|path| path.join(LIBRARY_NAME))
+        .ok_or_else(|| "Comm library_directory must be an absolute path".to_owned())
+}
 
 pub struct HttpRequest {
     pub method: String,
@@ -446,3 +456,18 @@ unsafe extern "C" fn transport_response_free(
 }
 
 unsafe extern "C" fn transport_session_closed(_sid: *const c_char, _context: *mut c_void) {}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn installed_library_path_is_absolute_and_uses_comm_filename() {
+        let config = serde_json::json!({"library_directory": "/usr/lib/autobricks"});
+        assert_eq!(
+            super::library_path(&config).unwrap(),
+            std::path::Path::new("/usr/lib/autobricks").join(super::LIBRARY_NAME)
+        );
+        assert!(
+            super::library_path(&serde_json::json!({"library_directory": "relative"})).is_err()
+        );
+    }
+}

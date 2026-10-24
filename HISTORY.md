@@ -1,5 +1,12 @@
 # Development history
 
+## 1.1.140 — 2026-10-25
+
+- Added administrator-authorized `auth` and `pki` client credentials issued by the reserved `auth.<baseDomain>` Intermediate CA for installation-time PKI/Auth mutual authentication.
+- Preserved the existing Auth request objects and fail-closed certificate-pair decision path while adding installation credential issuance.
+- Standardized packaged PKI paths under `/etc/autobricks/pki`, `/var/lib/autobricks/pki`, `/var/run/autobricks`, `/usr/bin/autobricks`, and `/usr/lib/autobricks`, with compatibility command and library links.
+- Made PKI resolve the COMM dynamic library from the configured absolute `library_directory` and verified the installed-layout ABI consumer path.
+
 ## 1.1.137 — 2026-10-24
 
 - Added the optional Autobricks Auth ABI v3 dynamic-library consumer. When `auth_support` is enabled, PKI verifies the ABI, initializes one service-lifetime Auth client, exposes fail-closed SERVER/CLIENT pair checks, and releases the handle during shutdown.

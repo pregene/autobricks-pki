@@ -1,6 +1,13 @@
 use super::Operation;
 
 pub(super) const OPERATIONS: &[Operation] = &[
+    Operation {
+        name: "auth-credential",
+        usage: "auth-credential auth|pki --pass [PASSWORD]",
+        description: "Issue one installation credential from auth.<baseDomain>.",
+        details: "Used by the Autobricks Auth installer. The fixed auth and pki roles issue client-capable credentials with role-specific URI SANs. Administrator authentication is required. The download token is stored in the invoking user's protected credential directory.",
+        example: "abpki-cli auth-credential auth --pass",
+    },
     #[cfg(target_os = "macos")]
     Operation {
         name: "configure",
@@ -15,7 +22,7 @@ pub(super) const OPERATIONS: &[Operation] = &[
         description: "Run the local Unix socket client service.",
         details: "Read the installed connection settings and OS trust bundle. Invoked by the installed service manager.",
         #[cfg(not(target_os = "macos"))]
-        example: "abpki-cli daemon --config /etc/autobricks-pki-client/client.json",
+        example: "abpki-cli daemon --config /etc/autobricks/pki/client.json",
         #[cfg(target_os = "macos")]
         example: "abpki-cli daemon --config '/Library/Application Support/Autobricks PKI/client.json'",
     },

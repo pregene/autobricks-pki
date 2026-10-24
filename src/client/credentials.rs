@@ -11,8 +11,9 @@ fn path(fingerprint: &str) -> Result<PathBuf> {
     if fingerprint.len() != 64 || !fingerprint.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err("invalid certificate fingerprint".into());
     }
-    let home = PathBuf::from(env::var("HOME")?);
-    let directory = home.join(".abpki");
+    let directory = env::var_os("ABPKI_CREDENTIAL_DIRECTORY")
+        .map(PathBuf::from)
+        .unwrap_or(PathBuf::from(env::var("HOME")?).join(".abpki"));
     if !directory.exists() {
         fs::DirBuilder::new().mode(0o700).create(&directory)?;
     }

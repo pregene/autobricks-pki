@@ -122,6 +122,17 @@ fn route(s: &Service, r: &Request) -> Result<Response> {
             "application/x-pem-file",
         ));
     }
+    if r.method == "POST" && r.path == "/api/auth-credential" {
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct AuthenticationCredentialRequest {
+            role: String,
+        }
+        let request: AuthenticationCredentialRequest = serde_json::from_slice(&r.body)?;
+        return json_response(
+            s.issue_authentication_credential(&request.role, bearer(r).as_bytes())?,
+        );
+    }
     if r.path == "/ocsp/" {
         if r.method != "POST" {
             return Ok(Response {

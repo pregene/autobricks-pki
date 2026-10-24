@@ -51,12 +51,16 @@ fn run() -> Result<()> {
     if admin.is_some()
         && !matches!(
             command.as_str(),
-            "revoke" | "renew" | "create-ca" | "certificate"
+            "revoke" | "renew" | "create-ca" | "certificate" | "auth-credential"
         )
     {
         return Err("--pass is only supported by administrator operations".into());
     }
-    if matches!(command.as_str(), "create-ca" | "revoke" | "certificate") && admin.is_none() {
+    if matches!(
+        command.as_str(),
+        "create-ca" | "revoke" | "certificate" | "auth-credential"
+    ) && admin.is_none()
+    {
         return Err("--pass is required for this command".into());
     }
     if command == "renew" && admin.is_some() && renewal_certificate.is_some() {
@@ -116,6 +120,11 @@ fn run() -> Result<()> {
             output = Some(format!("certificate-{first}.pem"));
             "/api/certificate".to_owned()
         }
+        "auth-credential" if args.len() == 1 && matches!(args[0].as_str(), "auth" | "pki") => {
+            method = "POST";
+            body = serde_json::to_vec(&serde_json::json!({"role":args[0]}))?;
+            "/api/auth-credential".to_owned()
+        }
         "create" if args.is_empty() => {
             method = "POST";
             std::io::stdin().take(1_048_577).read_to_end(&mut body)?;
@@ -157,7 +166,7 @@ fn run() -> Result<()> {
             body,
         },
     )?;
-    let save_token = command == "create"
+    let save_token = matches!(command.as_str(), "create" | "auth-credential")
         || (command == "renew"
             && serde_json::from_slice::<serde_json::Value>(&response)?["renewed"] == true);
     if save_token && let Err(error) = client::credentials::save_response(&response) {
@@ -165,7 +174,7 @@ fn run() -> Result<()> {
         std::io::stdout().write_all(&response)?;
         return Err(format!("certificate issued but local credential save failed: {error}").into());
     }
-    if matches!(command.as_str(), "create" | "renew") {
+    if matches!(command.as_str(), "create" | "renew" | "auth-credential") {
         let mut public: serde_json::Value = serde_json::from_slice(&response)?;
         if let Some(object) = public.as_object_mut() {
             object.remove("download_token");

@@ -51,7 +51,7 @@ The included client uses the server installation settings without separate conne
 
 ## Server and included client
 
-The installer collects base domain, DNS registration IP, bind address, management TLS port, and public HTTPS port. It generates a random 16-character ADMIN password, writes it as `ABPKI_ADMIN_PASSWORD` in root-owned mode-0600 `/etc/autobricks-pki/abpkid.env`, and displays it on completion. SQLite retains the salted administrator password hash for server-side verification. Client-only installation does not generate this password.
+The installer collects base domain, DNS registration IP, bind address, management TLS port, and public HTTPS port. It generates a random 16-character ADMIN password, writes it as `ABPKI_ADMIN_PASSWORD` in root-owned mode-0600 `/etc/autobricks/pki/abpkid.env`, and displays it on completion. SQLite retains the salted administrator password hash for server-side verification. Client-only installation does not generate this password.
 
 The server creates its Root CA, six default Intermediate CAs, and TLS certificate. Intermediate validity is `min(398, TrueLog retention days - 7)` days. DNS registration and audit submission use the installed Autobricks services.
 
@@ -61,7 +61,7 @@ The included client uses the server registration IP, which is present in the ser
 
 Fresh server installation reserves `/mnt/worm-storage/<installation-timestamp>/pki/` using UTC Unix seconds. It saves `ABPKI_INSTALLED_AT` and `ABPKI_WORM` in `abpkid.env`. Existing timestamp directories are not reused. Restarts, upgrades, and reinstall after remove reuse the saved namespace. Fresh installation after purge reserves another namespace without deleting retained archives.
 
-Live SQLite remains at `/var/lib/autobricks-pki/abpki.sqlite`, outside WORM. PKI does not change TrueLog retention, backing storage, or mount ownership.
+Live SQLite remains at `/var/lib/autobricks/pki/abpki.sqlite`, outside WORM. PKI does not change TrueLog retention, backing storage, or mount ownership.
 
 ## Client installation and operating-system trust
 
@@ -69,7 +69,7 @@ Client-only installation collects server address, management TLS port (5545), an
 
 Before saving trust, the installer verifies both TLS endpoints against the retrieved Root and checks server identity. It writes the owned Root certificate to `/usr/local/share/ca-certificates/autobricks-pki-client.crt`, runs `update-ca-certificates`, and verifies a connection using OS trust. Reconfiguration does not silently replace the enrolled server identity or Root.
 
-The daemon reads `/etc/autobricks-pki-client/client.json` and the OS trust bundle `/etc/ssl/certs/ca-certificates.crt`. No client certificate or mTLS pairing is required. `abpki-cli.service` runs `abpki-cli daemon --config /etc/autobricks-pki-client/client.json`; user commands communicate through `/run/autobricks-pki-client/client.sock`.
+The daemon reads `/etc/autobricks/pki/client.json` and the OS trust bundle `/etc/ssl/certs/ca-certificates.crt`. No client certificate or mTLS pairing is required. `abpki-cli.service` runs `abpki-cli daemon --config /etc/autobricks/pki/client.json`; user commands communicate through `/var/run/autobricks/pki-client.sock`.
 
 The service account and socket group are `autobricks-pki-cli`. The installer adds the invoking `SUDO_USER` to that group and grants socket ACL access for immediate use. Other local callers need membership in that group. Socket access does not grant certificate revocation permission.
 

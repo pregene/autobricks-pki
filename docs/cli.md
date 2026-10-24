@@ -2,7 +2,7 @@
 
 `abpki-cli` submits requests to the local `abpki-client` service through a Unix domain socket. The service connects to `abpkid` over management TLS (default port 5545), using settings saved during client installation. No client certificate or client private key is used for this TLS connection.
 
-On Linux, `abpki-cli.service` runs the local daemon with `/etc/autobricks-pki-client/client.json`. CLI operations use `/run/autobricks-pki-client/client.sock`; only the daemon opens remote TLS connections. Both Linux package types include this service. macOS uses launchd with the same CLI-to-service Unix socket flow; see [macOS client installation and usage](macos-client.md).
+On Linux, `abpki-cli.service` runs the local daemon with `/etc/autobricks/pki/client.json`. CLI operations use `/var/run/autobricks/pki-client.sock`; only the daemon opens remote TLS connections. Both Linux package types include this service. macOS uses launchd with the same CLI-to-service Unix socket flow; see [macOS client installation and usage](macos-client.md).
 
 [Executable usage and request examples](runtime.md)
 
@@ -10,6 +10,7 @@ On Linux, `abpki-cli.service` runs the local daemon with `/etc/autobricks-pki-cl
 
 | Command | Function |
 | --- | --- |
+| `abpki-cli auth-credential auth\|pki --pass [PASSWORD]` | Issue an installation IPC credential from `auth.<baseDomain>`. |
 | `abpki-cli create-ca NAME [--days DAYS] --pass [PASSWORD]` | Create an additional Intermediate CA. |
 | `abpki-cli certificate FINGERPRINT [FINGERPRINT ...] --pass [PASSWORD]` | Issue one `cert` CA authorization PEM for one to 64 renewal targets. |
 | `abpki-cli revoke ... --pass` | Revoke a certificate; requires the administrator password. |

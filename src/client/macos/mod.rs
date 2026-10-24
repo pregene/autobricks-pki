@@ -1,7 +1,7 @@
 use crate::Result;
 use std::{net::ToSocketAddrs, sync::Arc};
 
-pub const SOCKET: &str = "/var/run/autobricks-pki-client/client.sock";
+pub const SOCKET: &str = "/var/run/autobricks/pki-client.sock";
 pub const CONFIG: &str = "/Library/Application Support/Autobricks PKI/client.json";
 
 fn installed_config() -> std::path::PathBuf {
@@ -119,7 +119,7 @@ pub fn configure(args: &[String]) -> Result<()> {
 pub fn prepare_socket(path: &std::path::Path) -> Result<()> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
     let parent = path.parent().ok_or("socket path has no parent")?;
-    if parent == std::path::Path::new("/var/run/autobricks-pki-client") {
+    if parent == std::path::Path::new("/var/run/autobricks") {
         if !parent.exists() {
             std::fs::DirBuilder::new().mode(0o750).create(parent)?;
         }

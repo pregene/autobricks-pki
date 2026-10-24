@@ -443,6 +443,44 @@ fn reserved_auth_and_cert_cas_reject_general_creation() {
         );
     }
 }
+
+#[test]
+fn authentication_credentials_use_reserved_auth_ca_and_fixed_roles() {
+    let f = Fixture::new();
+    for (role, purpose) in [
+        ("auth", "urn:autobricks:ipc:auth"),
+        ("pki", "urn:autobricks:ipc:pki"),
+    ] {
+        let issued = f
+            .service
+            .issue_authentication_credential(role, ADMIN)
+            .unwrap();
+        let issuer = f
+            .service
+            .db
+            .metadata(issued.certificate.issuer.as_ref().unwrap())
+            .unwrap();
+        assert_eq!(issuer.cn, "auth.autobricks.internal");
+        let certificate = X509::from_pem(issued.certificate.pem.as_bytes()).unwrap();
+        assert!(
+            certificate
+                .subject_alt_names()
+                .unwrap()
+                .iter()
+                .any(|name| name.uri() == Some(purpose))
+        );
+    }
+    assert!(
+        f.service
+            .issue_authentication_credential("other", ADMIN)
+            .is_err()
+    );
+    assert!(
+        f.service
+            .issue_authentication_credential("auth", b"wrong")
+            .is_err()
+    );
+}
 #[test]
 fn malformed_ocsp_is_protocol_error() {
     let der = ocsp::respond(b"bad", &[], now()).unwrap();
