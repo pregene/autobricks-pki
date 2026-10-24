@@ -10,14 +10,14 @@ use openssl::{
     sign::Signer,
     x509::X509,
 };
-pub(super) struct Query {
+pub(crate) struct Query {
     encoded: Vec<u8>,
     pub(super) algorithm: MessageDigest,
     pub(super) name_hash: Vec<u8>,
     pub(super) key_hash: Vec<u8>,
     serial: Vec<u8>,
 }
-fn queries(body: &[u8]) -> Result<(Vec<Query>, Option<Vec<u8>>)> {
+fn queries_with_profile(body: &[u8], strict_auth: bool) -> Result<(Vec<Query>, Option<Vec<u8>>)> {
     let request = OcspRequest::from_der(body)?;
     if request.to_der()? != body {
         return Err("non-canonical OCSP request".into());
@@ -48,6 +48,9 @@ fn queries(body: &[u8]) -> Result<(Vec<Query>, Option<Vec<u8>>)> {
             return Err("invalid OCSP request item".into());
         }
         let (tag, mut id, raw) = read(&mut one)?;
+        if strict_auth && !one.is_empty() {
+            return Err("AUTH single-request extensions are forbidden".into());
+        }
         if !one.is_empty() {
             let (tag, extensions, _) = read(&mut one)?;
             if tag != 0xa0 {
@@ -87,7 +90,13 @@ fn queries(body: &[u8]) -> Result<(Vec<Query>, Option<Vec<u8>>)> {
     if out.is_empty() {
         return Err("empty OCSP request list".into());
     }
+    if strict_auth && out.len() != 2 {
+        return Err("AUTH requires exactly two CertID entries".into());
+    }
     let mut nonce = None;
+    if strict_auth && !tbs.is_empty() {
+        return Err("AUTH request extensions are forbidden".into());
+    }
     if !tbs.is_empty() {
         let (tag, extensions, _) = read(&mut tbs)?;
         if tag != 0xa2 {
@@ -112,7 +121,37 @@ fn queries(body: &[u8]) -> Result<(Vec<Query>, Option<Vec<u8>>)> {
             }
         }
     }
+    if strict_auth && !outer.is_empty() {
+        return Err("AUTH optional signature is forbidden".into());
+    }
     Ok((out, nonce))
+}
+fn queries(body: &[u8]) -> Result<(Vec<Query>, Option<Vec<u8>>)> {
+    queries_with_profile(body, false)
+}
+pub(crate) fn auth_queries(body: &[u8]) -> Result<Vec<Query>> {
+    let (queries, nonce) = queries_with_profile(body, true)?;
+    if nonce.is_some() {
+        return Err("AUTH nonce is forbidden".into());
+    }
+    Ok(queries)
+}
+pub(crate) fn resolve_auth_query(
+    database: &crate::storage::database::Database,
+    query: &Query,
+) -> Result<Option<Certificate>> {
+    let Some(issuer) = super::issuer_cache::select(database, std::slice::from_ref(query))? else {
+        return Ok(None);
+    };
+    let serial = openssl::bn::BigNum::from_slice(&query.serial)?
+        .to_hex_str()?
+        .to_string();
+    for generation in database.ca_lineage(&issuer)? {
+        if let Some(record) = database.by_issuer_serial(&generation, &serial)? {
+            return Ok(Some(record));
+        }
+    }
+    Ok(None)
 }
 fn error(status: OcspResponseStatus) -> Result<Vec<u8>> {
     Ok(OcspResponse::create(status, None)?.to_der()?)

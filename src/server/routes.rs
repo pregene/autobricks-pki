@@ -41,6 +41,7 @@ pub fn dispatch_public(service: &Service, request: Request) -> Response {
     if request.path == "/"
         || request.path == "/root"
         || request.path == "/ocsp/"
+        || (request.path == "/auth/" && service.auth.is_some())
         || request.path.starts_with("/crl/")
     {
         dispatch(service, request)
@@ -72,6 +73,33 @@ fn tls_enrollment_route(r: &Request) -> bool {
         || (r.method == "GET" && r.path.starts_with("/api/download/"))
 }
 fn route(s: &Service, r: &Request) -> Result<Response> {
+    if r.path == "/auth/" && s.auth.is_some() {
+        if r.method != "POST" {
+            return Ok(Response {
+                status: "405 Method Not Allowed",
+                content_type: "text/plain",
+                body: vec![],
+            });
+        }
+        if !r
+            .headers
+            .get("content-type")
+            .is_some_and(|value| value.eq_ignore_ascii_case(crate::auth::decision::REQUEST_TYPE))
+        {
+            return Ok(Response {
+                status: "415 Unsupported Media Type",
+                content_type: "text/plain",
+                body: vec![],
+            });
+        }
+        let auth = s.auth.as_ref().ok_or("Auth runtime is unavailable")?;
+        return Ok(file(
+            crate::auth::decision::respond(&r.body, &s.db, now(), |server, client| {
+                auth.check(server, client).map_err(Into::into)
+            }),
+            crate::auth::decision::RESPONSE_TYPE,
+        ));
+    }
     if r.method == "POST" && r.path == "/api/create-ca" {
         #[derive(serde::Deserialize)]
         #[serde(deny_unknown_fields)]

@@ -16,6 +16,7 @@ fn fixture(directory: &std::path::Path) -> Arc<Mutex<Service>> {
     // Delivery needs the root identifier only, never its certificate or private key.
     db.conn.execute("INSERT INTO certificates(fingerprint,cn,kind,serial,not_before,not_after,certificate_path,private_key_path) VALUES('root-id','root','root','01',0,9999999999,'absent.pem','absent.key.pem')", []).unwrap();
     Arc::new(Mutex::new(Service {
+        auth: None,
         auth_2fa: false,
         background_delivery: true,
         db,

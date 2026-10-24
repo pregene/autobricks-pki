@@ -12,6 +12,7 @@ Install and configure `autobricks-truelog-cli` on the PKI host, with the PKI ser
 | --- | --- | --- |
 | `ABPKI_DATABASE` | SQLite database file on mutable storage | `abpki.sqlite` |
 | `AUTOBRICKS_CERTIFICATE_LIBRARY` | Optional explicit path to the Autobricks Certificate dynamic library | Installed `/usr/lib/autobricks/libautobricks_certificate.so` is discovered automatically |
+| `AUTOBRICKS_AUTH_LIBRARY` | Optional explicit path to the Autobricks Auth dynamic library | Installed `/usr/lib/autobricks/libautobricks_auth.so` is discovered automatically |
 | `ABPKI_INSTALLED_AT` | Installation UTC Unix timestamp in seconds, retained by the installer | Generated on fresh installation |
 | `ABPKI_WORM` | Existing directory on the WORM mount for certificates and private-key archives | Required; saved by the installer |
 | `ABPKI_TRUELOG_CLI` | TrueLog client executable for audit submission as service `abpkid` | `/usr/bin/ab-truelog-cli` |

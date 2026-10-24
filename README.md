@@ -78,6 +78,18 @@ The Root CA has no defined expiration. Intermediate CA default and maximum valid
 
 [OCSP service](OCSP.md)
 
+## Optional AUTH protocol support
+
+PKI does not own AUTH decisions or ALLOW data. When `auth_support` is enabled,
+it uses the separately configured `autobricks-auth` dynamic library and exposes
+the certificate-pair authorization POST contract at
+`https://pki.<baseDomain>:<https-port>/auth/`. Its DER-encoded OCSP request
+contains the CLIENT `CertID` followed by the SERVER `CertID`. The response is
+one of `GOOD:ALLOW`, `GOOD:DENY`, `REVOKED:DENY`, or `UNKNOWN:DENY` and fails
+closed.
+
+[AUTH service](AUTH.md)
+
 ## Key storage
 
 Version 1.0 uses software cryptography with P-256 keys and SHA-256 signatures. The service keeps encrypted private-key files on WORM and their paths, encryption password, and salted administrator password hash in SQLite. Certificate, private-key, and CRL PEM contents are stored only on WORM. The service has no user accounts or user management.
@@ -95,7 +107,7 @@ Version 1.0 uses software cryptography with P-256 keys and SHA-256 signatures. T
 
 ## Build version
 
-[VERSION](VERSION) contains the build version in `1.0.NNN` format.
+[VERSION](VERSION) contains the build version in `major.minor.NNN` format.
 The [build runner](docs/build.md) increments the build number before running a build command.
 
 [Development history](HISTORY.md)

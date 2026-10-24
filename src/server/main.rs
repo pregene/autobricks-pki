@@ -65,7 +65,8 @@ fn run() -> Result<()> {
     };
     let origin = url::Url::parse(&origin)?;
     let distribution = Distribution::new(origin.as_str())?;
-    let service = Service {
+    let mut service = Service {
+        auth: None,
         auth_2fa: c.auth_2fa,
         background_delivery: args == ["serve"],
         db: database,
@@ -121,6 +122,10 @@ fn run() -> Result<()> {
         println!("PKI initialized");
         return Ok(());
     }
+    service.auth = c
+        .auth_support
+        .then(autobricks_pki::auth::Runtime::initialize)
+        .transpose()?;
     if let Err(error) = service.run_hourly_renewal(autobricks_pki::server::service::now()) {
         eprintln!("hourly renewal failed: {error}");
     }

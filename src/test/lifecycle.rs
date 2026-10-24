@@ -58,6 +58,7 @@ impl Fixture {
         });
         std::fs::write(temp.path().join("truelog.env"), "AB_WORM_RETAIN_DAYS=365\n").unwrap();
         let service = Service {
+            auth: None,
             auth_2fa: false,
             background_delivery: false,
             db: Database::open(&temp.path().join("pki.sqlite"), &worm).unwrap(),
@@ -125,12 +126,15 @@ impl Fixture {
         record
     }
     fn issue(&self, days: u32) -> autobricks_pki::server::service::Issued {
+        self.issue_kind(days, LeafKind::Server)
+    }
+    fn issue_kind(&self, days: u32, kind: LeafKind) -> autobricks_pki::server::service::Issued {
         self.service
             .create(Create {
                 issuer: "www.autobricks.internal".into(),
                 profile: LeafProfile {
                     extra: Default::default(),
-                    kind: LeafKind::Server,
+                    kind,
                     common_name: format!("web{}", self.service.db.all().unwrap().len()),
                     dns_names: vec![],
                     ip_addresses: vec!["192.0.2.20".parse().unwrap()],
@@ -154,6 +158,93 @@ fn request(leaf: &X509, issuer: &X509) -> Vec<u8> {
     r.add_id(OcspCertId::from_cert(MessageDigest::sha1(), leaf, issuer).unwrap())
         .unwrap();
     r.to_der().unwrap()
+}
+
+#[test]
+fn auth_profile_uses_vccms_client_then_server_order_and_fails_closed() {
+    let f = Fixture::new();
+    let client = f.issue_kind(47, LeafKind::Client).certificate;
+    let server = f.issue_kind(47, LeafKind::Server).certificate;
+    let client_certificate = X509::from_pem(client.pem.as_bytes()).unwrap();
+    let server_certificate = X509::from_pem(server.pem.as_bytes()).unwrap();
+    let client_issuer = f.service.db.get(client.issuer.as_deref().unwrap()).unwrap();
+    let server_issuer = f.service.db.get(server.issuer.as_deref().unwrap()).unwrap();
+    let client_issuer = X509::from_pem(client_issuer.pem.as_bytes()).unwrap();
+    let server_issuer = X509::from_pem(server_issuer.pem.as_bytes()).unwrap();
+    let auth_request = |reverse: bool| {
+        let client_id =
+            OcspCertId::from_cert(MessageDigest::sha256(), &client_certificate, &client_issuer)
+                .unwrap();
+        let server_id =
+            OcspCertId::from_cert(MessageDigest::sha256(), &server_certificate, &server_issuer)
+                .unwrap();
+        let mut request = OcspRequest::new().unwrap();
+        if reverse {
+            request.add_id(server_id).unwrap();
+            request.add_id(client_id).unwrap();
+        } else {
+            request.add_id(client_id).unwrap();
+            request.add_id(server_id).unwrap();
+        }
+        request.to_der().unwrap()
+    };
+    let body = auth_request(false);
+    let allow = autobricks_pki::auth::decision::respond(&body, &f.service.db, now(), |s, c| {
+        assert_eq!(s, server.fingerprint);
+        assert_eq!(c, client.fingerprint);
+        Ok(true)
+    });
+    assert_eq!(allow, b"GOOD:ALLOW");
+    assert_eq!(
+        autobricks_pki::auth::decision::respond(&body, &f.service.db, now(), |_, _| Ok(false)),
+        b"GOOD:DENY"
+    );
+    assert_eq!(
+        autobricks_pki::auth::decision::respond(&body, &f.service.db, now(), |_, _| {
+            Err("Auth unavailable".into())
+        }),
+        b"UNKNOWN:DENY"
+    );
+    assert_eq!(
+        autobricks_pki::auth::decision::respond(
+            &auth_request(true),
+            &f.service.db,
+            now(),
+            |_, _| panic!("Auth check must not run for reversed certificate roles")
+        ),
+        b"UNKNOWN:DENY"
+    );
+    assert_eq!(
+        autobricks_pki::auth::decision::respond(b"invalid", &f.service.db, now(), |_, _| {
+            panic!("Auth check must not run for malformed requests")
+        }),
+        b"UNKNOWN:DENY"
+    );
+    assert_eq!(
+        autobricks_pki::auth::decision::respond(
+            &body,
+            &f.service.db,
+            server.validity.not_after + 1,
+            |_, _| panic!("Auth check must not run for expired certificates")
+        ),
+        b"UNKNOWN:DENY"
+    );
+    f.service.revoke(&client.fingerprint, ADMIN).unwrap();
+    assert_eq!(
+        autobricks_pki::auth::decision::respond(&body, &f.service.db, now(), |_, _| {
+            panic!("Auth check must not run for revoked certificates")
+        }),
+        b"REVOKED:DENY"
+    );
+    assert_eq!(
+        autobricks_pki::auth::decision::respond(
+            &auth_request(true),
+            &f.service.db,
+            now(),
+            |_, _| panic!("Auth check must not run before certificate status is GOOD")
+        ),
+        b"REVOKED:DENY"
+    );
 }
 #[test]
 fn complete_lifecycle_and_signed_status() {

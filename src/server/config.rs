@@ -8,6 +8,7 @@ use std::{
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct FileConfig {
+    auth_support: bool,
     auth_2fa: bool,
     database: Option<PathBuf>,
     worm: Option<PathBuf>,
@@ -19,6 +20,7 @@ struct FileConfig {
 }
 
 pub struct Config {
+    pub auth_support: bool,
     pub auth_2fa: bool,
     pub database: PathBuf,
     pub worm: PathBuf,
@@ -35,6 +37,15 @@ fn required_path(name: &str, file: Option<PathBuf>) -> Result<PathBuf> {
         .or(file)
         .ok_or_else(|| format!("missing configuration value: {name}").into())
 }
+fn boolean(name: &str, file: bool) -> Result<bool> {
+    match env::var(name) {
+        Ok(value) if matches!(value.as_str(), "1" | "true" | "TRUE") => Ok(true),
+        Ok(value) if matches!(value.as_str(), "0" | "false" | "FALSE") => Ok(false),
+        Ok(_) => Err(format!("{name} must be true or false").into()),
+        Err(env::VarError::NotPresent) => Ok(file),
+        Err(error) => Err(error.into()),
+    }
+}
 
 impl Config {
     pub fn load(config: Option<&Path>) -> Result<Self> {
@@ -43,6 +54,7 @@ impl Config {
             None => FileConfig::default(),
         };
         Ok(Self {
+            auth_support: boolean("ABPKI_AUTH_SUPPORT", file.auth_support)?,
             auth_2fa: file.auth_2fa,
             database: required_path("ABPKI_DATABASE", file.database)?,
             worm: required_path("ABPKI_WORM", file.worm)?,

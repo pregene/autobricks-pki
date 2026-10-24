@@ -1,5 +1,10 @@
 # Development history
 
+## 1.1.137 — 2026-10-24
+
+- Added the optional Autobricks Auth ABI v3 dynamic-library consumer. When `auth_support` is enabled, PKI verifies the ABI, initializes one service-lifetime Auth client, exposes fail-closed SERVER/CLIENT pair checks, and releases the handle during shutdown.
+- Added `POST /auth/` with the VCCMS-compatible CLIENT-then-SERVER two-CertID profile and `GOOD:ALLOW`, `GOOD:DENY`, `REVOKED:DENY`, or `UNKNOWN:DENY` responses.
+
 ## 1.1.135 — 2026-10-23
 
 - Added administrator-authorized creation of additional Intermediate CAs with the configured default or an explicit bounded `--days` value.

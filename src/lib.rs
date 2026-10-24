@@ -1,5 +1,7 @@
 #![deny(unsafe_code)]
 #[cfg(feature = "server")]
+pub mod auth;
+#[cfg(feature = "server")]
 pub mod authority;
 #[cfg(feature = "server")]
 pub mod authorization;
@@ -21,6 +23,6 @@ pub mod server;
 pub mod storage;
 pub mod transport;
 pub const PRODUCT: &str = "Autobricks PKI Server 1.0";
-pub const VERSION: &str = "1.1.135";
+pub const VERSION: &str = env!("AUTOBRICKS_PKI_VERSION");
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Result<T> = std::result::Result<T, Error>;
