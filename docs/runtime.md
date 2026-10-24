@@ -80,7 +80,7 @@ The Linux connection section has this form:
   "server": "192.0.2.10",
   "port": 5545,
   "https_port": 5546,
-  "unix_socket": "/var/run/autobricks/pki-client.sock",
+  "unix_socket": "/run/autobricks/pki-client/client.sock",
   "ca": "/etc/ssl/certs/ca-certificates.crt"
 }
 ```

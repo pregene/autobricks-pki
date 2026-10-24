@@ -1,5 +1,11 @@
 # Development history
 
+## 1.1.141 — 2026-10-25
+
+- Moved Linux PKI server and client sockets into service-owned mode-0700 directories below `/run/autobricks`, matching the IPC library's protected-parent contract.
+- Added the socket directories to the systemd write allowlist and made the client access helper follow `client.json` instead of a hard-coded socket path.
+- Made generated `comm.json` readable by the PKI service account while retaining root ownership.
+
 ## 1.1.140 — 2026-10-25
 
 - Added administrator-authorized `auth` and `pki` client credentials issued by the reserved `auth.<baseDomain>` Intermediate CA for installation-time PKI/Auth mutual authentication.

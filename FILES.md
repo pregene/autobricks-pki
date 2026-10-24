@@ -118,7 +118,7 @@ Download archives are constructed in memory. CRL PEM files are read from their p
 
 ## Logs and runtime files
 
-Audit events are submitted through `/usr/bin/ab-truelog-cli write --service abpkid --data <event-json>`. TrueLog creates and manages its own appendable WORM log files, including rotation, retention integration, and checksum chains. PKI does not create audit JSON files or append to TrueLog-managed files. With TrueLog 0.3.55 and its standard mount, the daily log path is `/mnt/worm-storage/abpkid/truelog-YYYY-MM-DD.log`; the receiving TrueLog server controls its location and date. See the [TrueLog client interface](https://github.com/pregene/autobricks-log/blob/main/TRUELOG.md#write-records-through-the-client). Process startup and error messages use standard output and standard error; a systemd unit can capture these in the journal. Comm owns the server socket `/var/run/autobricks/pki.sock`; the local client service separately owns `/var/run/autobricks/pki-client.sock`.
+Audit events are submitted through `/usr/bin/ab-truelog-cli write --service abpkid --data <event-json>`. TrueLog creates and manages its own appendable WORM log files, including rotation, retention integration, and checksum chains. PKI does not create audit JSON files or append to TrueLog-managed files. With TrueLog 0.3.55 and its standard mount, the daily log path is `/mnt/worm-storage/abpkid/truelog-YYYY-MM-DD.log`; the receiving TrueLog server controls its location and date. See the [TrueLog client interface](https://github.com/pregene/autobricks-log/blob/main/TRUELOG.md#write-records-through-the-client). Process startup and error messages use standard output and standard error; a systemd unit can capture these in the journal. Comm owns the server socket `/run/autobricks/pki/server.sock`; the local client service separately owns `/run/autobricks/pki-client/client.sock`.
 
 The DNS control socket belongs to Autobricks DNS. PKI connects to it without creating, replacing, or deleting it. TrueLog owns the lifecycle of its WORM mount.
 
@@ -162,7 +162,7 @@ flowchart TD
 | `/etc/autobricks/pki/client.json` | Remote endpoint, ports, socket, and OS trust bundle; root-owned, client group-readable, mode `0640` |
 | `/etc/autobricks/pki/ownership.json` | Owned Root checksum and installer UID; root-only mode `0600` |
 | `/usr/local/share/ca-certificates/autobricks-pki-client.crt` | Enrolled public Root CA; mode `0644` |
-| `/var/run/autobricks/pki-client.sock` | Local request socket; mode `0660`, client group and installer UID access |
+| `/run/autobricks/pki-client/client.sock` | Local request socket; mode `0660`, client group and installer UID access |
 | `~/.abpki/<fingerprint>` | Caller-owned certificate token; mode `0600` under a `0700` directory |
 | `/lib/systemd/system/abpki-cli.service` | Local client service included in both packages |
 

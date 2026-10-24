@@ -69,7 +69,7 @@ Client-only installation collects server address, management TLS port (5545), an
 
 Before saving trust, the installer verifies both TLS endpoints against the retrieved Root and checks server identity. It writes the owned Root certificate to `/usr/local/share/ca-certificates/autobricks-pki-client.crt`, runs `update-ca-certificates`, and verifies a connection using OS trust. Reconfiguration does not silently replace the enrolled server identity or Root.
 
-The daemon reads `/etc/autobricks/pki/client.json` and the OS trust bundle `/etc/ssl/certs/ca-certificates.crt`. No client certificate or mTLS pairing is required. `abpki-cli.service` runs `abpki-cli daemon --config /etc/autobricks/pki/client.json`; user commands communicate through `/var/run/autobricks/pki-client.sock`.
+The daemon reads `/etc/autobricks/pki/client.json` and the OS trust bundle `/etc/ssl/certs/ca-certificates.crt`. No client certificate or mTLS pairing is required. `abpki-cli.service` runs `abpki-cli daemon --config /etc/autobricks/pki/client.json`; user commands communicate through `/run/autobricks/pki-client/client.sock`.
 
 The service account and socket group are `autobricks-pki-cli`. The installer adds the invoking `SUDO_USER` to that group and grants socket ACL access for immediate use. Other local callers need membership in that group. Socket access does not grant certificate revocation permission.
 
