@@ -482,6 +482,48 @@ fn authentication_credentials_use_reserved_auth_ca_and_fixed_roles() {
     );
 }
 #[test]
+fn administrator_certificate_uses_reserved_auth_ca_and_fixed_uri() {
+    let f = Fixture::new();
+    let issued = f.service.issue_administrator_certificate(ADMIN).unwrap();
+    let issuer = f
+        .service
+        .db
+        .metadata(issued.certificate.issuer.as_ref().unwrap())
+        .unwrap();
+    assert_eq!(issuer.cn, "auth.autobricks.internal");
+    let certificate = X509::from_pem(issued.certificate.pem.as_bytes()).unwrap();
+    assert_eq!(
+        certificate
+            .subject_alt_names()
+            .unwrap()
+            .iter()
+            .filter_map(|name| name.uri())
+            .collect::<Vec<_>>(),
+        vec!["urn:autobricks:administrator"]
+    );
+    assert!(f.service.issue_administrator_certificate(b"wrong").is_err());
+}
+
+#[test]
+fn auth_management_reports_when_auth_is_not_installed_or_enabled() {
+    let f = Fixture::new();
+    let response = autobricks_pki::server::routes::dispatch(
+        &f.service,
+        autobricks_pki::server::routes::Request {
+            method: "POST".into(),
+            path: "/api/auth".into(),
+            headers: Default::default(),
+            body: br#"{"operation":"add","server":"unused","clients":["unused"]}"#.to_vec(),
+        },
+    );
+    assert_eq!(response.status, "503 Service Unavailable");
+    assert_eq!(
+        response.body,
+        b"Autobricks Auth is not installed or enabled."
+    );
+}
+
+#[test]
 fn malformed_ocsp_is_protocol_error() {
     let der = ocsp::respond(b"bad", &[], now()).unwrap();
     assert_eq!(

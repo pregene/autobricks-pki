@@ -2,6 +2,20 @@ use super::Operation;
 
 pub(super) const OPERATIONS: &[Operation] = &[
     Operation {
+        name: "admin",
+        usage: "admin --pass [PASSWORD]",
+        description: "Issue an administrator authorization certificate as admin.pem.",
+        details: "Administrator authentication is required. The certificate is issued by auth.<baseDomain> with the exact URI SAN urn:autobricks:administrator. Output is written as mode 0600 to admin.pem, and an existing file is never overwritten.",
+        example: "abpki-cli admin --pass",
+    },
+    Operation {
+        name: "auth",
+        usage: "auth add SERVER CLIENT [CLIENT ...] --cert admin.pem\n       auth del SERVER [CLIENT] --cert admin.pem",
+        description: "Add or delete Auth mappings using an administrator certificate.",
+        details: "The certificate must be VALID, issued by auth.<baseDomain>, and contain the exact URI SAN urn:autobricks:administrator. add accepts multiple client fingerprints, including comma-separated values. del with a client removes one mapping; del without a client removes every mapping for the server.",
+        example: "abpki-cli auth add <server> <client> --cert admin.pem",
+    },
+    Operation {
         name: "auth-credential",
         usage: "auth-credential auth|pki --pass [PASSWORD]",
         description: "Issue one installation credential from auth.<baseDomain>.",

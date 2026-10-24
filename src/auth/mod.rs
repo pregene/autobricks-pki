@@ -3,6 +3,7 @@
 #![allow(unsafe_code)]
 
 pub mod decision;
+mod management;
 
 use libloading::{Library, Symbol};
 use std::{
@@ -30,6 +31,7 @@ pub struct Runtime {
     check: Check,
     last_error: LastError,
     uninitialize: Uninitialize,
+    management: management::Client,
     _library: Library,
 }
 
@@ -40,6 +42,10 @@ impl Runtime {
     /// Loads the Auth module and connects it to the configured local Auth service.
     pub fn initialize() -> Result<Self, String> {
         let path = library_path()?;
+        let directory = path
+            .parent()
+            .ok_or_else(|| "Auth library directory is unavailable".to_owned())?;
+        let management = management::Client::initialize(directory)?;
         let library = unsafe { Library::new(&path) }
             .map_err(|error| format!("Auth library load failed at {}: {error}", path.display()))?;
         let abi = symbol::<AbiVersion>(&library, b"ab_auth_abi_version\0")?;
@@ -63,6 +69,7 @@ impl Runtime {
             check,
             last_error,
             uninitialize,
+            management,
             _library: library,
         })
     }
@@ -85,6 +92,15 @@ impl Runtime {
             })),
             status => Err(format!("Auth check returned invalid status {status}")),
         }
+    }
+
+    pub fn manage(
+        &self,
+        operation: &str,
+        server: &str,
+        clients: &[String],
+    ) -> Result<String, String> {
+        self.management.execute(operation, server, clients)
     }
 }
 

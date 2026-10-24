@@ -10,6 +10,9 @@ On Linux, `abpki-cli.service` runs the local daemon with `/etc/autobricks/pki/cl
 
 | Command | Function |
 | --- | --- |
+| `abpki-cli admin --pass [PASSWORD]` | Issue `admin.pem` from `auth.<baseDomain>` with URI SAN `urn:autobricks:administrator`. |
+| `abpki-cli auth add SERVER CLIENT [CLIENT ...] --cert admin.pem` | Add one or more Auth mappings with an administrator certificate. |
+| `abpki-cli auth del SERVER [CLIENT] --cert admin.pem` | Delete one mapping, or every mapping for the server when CLIENT is omitted. |
 | `abpki-cli auth-credential auth\|pki --pass [PASSWORD]` | Issue an installation IPC credential from `auth.<baseDomain>`. |
 | `abpki-cli create-ca NAME [--days DAYS] --pass [PASSWORD]` | Create an additional Intermediate CA. |
 | `abpki-cli certificate FINGERPRINT [FINGERPRINT ...] --pass [PASSWORD]` | Issue one `cert` CA authorization PEM for one to 64 renewal targets. |
@@ -23,6 +26,9 @@ On Linux, `abpki-cli.service` runs the local daemon with `/etc/autobricks/pki/cl
 | `abpki-cli list-ca [valid|revoked|renew|all]` | List Intermediate CA metadata by state; defaults to `valid`. |
 | `abpki-cli list [valid|revoked|renew|all]` | List leaf metadata by state; defaults to `valid`. |
 | `abpki-cli download {fingerprint} {target}` | Download the certificate, its private key, and its trust chain as `{target}.tar.gz`, identified by the certificate fingerprint. |
+
+When Autobricks Auth is not installed or PKID Auth support is disabled, Auth
+management commands fail with `Autobricks Auth is not installed or enabled.`
 
 Certificate creation is available to any connected client. URI SAN values are encoded within the documented input limits. The consuming server or client interprets purpose and access-policy claims. See the [field input reference](../LEAF-CREATE.md#certificate-field-support). Additional Intermediate CA creation and renewal-authorization issuance require the administrator password. Certificate revocation also requires the administrator password. `abpkid` enforces these permissions when processing requests.
 

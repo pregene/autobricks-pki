@@ -1,6 +1,6 @@
 [package]
 name = "autobricks-pki"
-version = "1.1.141"
+version = "1.1.144"
 edition = "2024"
 publish = false
 license-file = "LICENSE"
@@ -51,7 +51,7 @@ path = "src/test/worm.rs"
 
 [features]
 default = ["server"]
-server = ["dep:openssl", "dep:rusqlite", "dep:tar", "dep:flate2", "dep:tempfile", "dep:libloading"]
+server = ["dep:openssl", "dep:rusqlite", "dep:tar", "dep:flate2", "dep:tempfile", "dep:libloading", "dep:base64"]
 
 [dependencies]
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
@@ -67,6 +67,7 @@ flate2 = { version = "1", optional = true }
 tempfile = { version = "3", optional = true }
 autobricks-certificate = { path = "../autobricks-certificate" }
 libloading = { version = "0.8", optional = true }
+base64 = { version = "0.22", optional = true }
 
 
 [lints.rust]

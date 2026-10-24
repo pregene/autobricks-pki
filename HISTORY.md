@@ -1,5 +1,18 @@
 # Development history
 
+## 1.1.144 — 2026-10-25
+
+- Added certificate-authorized `abpki-cli auth add` and `auth del`, including per-client and server-wide deletion, using a validated `admin.pem` and the mutually authenticated PKI-to-Auth IPC channel.
+- `abpki-cli auth add` and `auth del` now report when Autobricks Auth is not installed or enabled instead of returning a generic rejection.
+
+## 1.1.143 — 2026-10-25
+
+- Added `abpki-cli admin --pass` to issue mode-0600 `admin.pem` from the reserved `auth.<baseDomain>` Intermediate CA with the exact URI SAN `urn:autobricks:administrator`.
+
+## 1.1.142 — 2026-10-25
+
+- Fixed `abpki-cli auth-credential auth|pki --pass` so the administrator credential is forwarded to PKID for installation-time Auth credential issuance.
+
 ## 1.1.141 — 2026-10-25
 
 - Moved Linux PKI server and client sockets into service-owned mode-0700 directories below `/run/autobricks`, matching the IPC library's protected-parent contract.

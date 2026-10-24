@@ -133,6 +133,41 @@ fn route(s: &Service, r: &Request) -> Result<Response> {
             s.issue_authentication_credential(&request.role, bearer(r).as_bytes())?,
         );
     }
+    if r.method == "POST" && r.path == "/api/admin" {
+        if !r.body.is_empty() {
+            return Err("admin certificate request body must be empty".into());
+        }
+        return Ok(file(
+            s.issue_administrator_certificate(bearer(r).as_bytes())?
+                .certificate
+                .pem
+                .into_bytes(),
+            "application/x-pem-file",
+        ));
+    }
+    if r.method == "POST" && r.path == "/api/auth" {
+        let Some(auth) = s.auth.as_ref() else {
+            return Ok(Response {
+                status: "503 Service Unavailable",
+                content_type: "text/plain; charset=utf-8",
+                body: b"Autobricks Auth is not installed or enabled.".to_vec(),
+            });
+        };
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct AuthManagementRequest {
+            operation: String,
+            server: String,
+            clients: Vec<String>,
+        }
+        let request: AuthManagementRequest = serde_json::from_slice(&r.body)?;
+        s.authorize_administrator_certificate(bearer(r).as_bytes())?;
+        return Ok(file(
+            auth.manage(&request.operation, &request.server, &request.clients)?
+                .into_bytes(),
+            "text/plain; charset=utf-8",
+        ));
+    }
     if r.path == "/ocsp/" {
         if r.method != "POST" {
             return Ok(Response {

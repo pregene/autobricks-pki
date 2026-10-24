@@ -47,7 +47,7 @@ Initial installation creates one Root CA and six Intermediate CAs: `database`, `
 
 ## Command-line client
 
-Available certificate commands include `create`, `create-ca`, `auth-credential`, `certificate`, `check`, `info`, `list-ca`, `list`, `download`, `revoke`, `renew`, `root`, and `chain`.
+Available certificate commands include `create`, `create-ca`, `auth-credential`, `admin`, `auth add`, `auth del`, `certificate`, `check`, `info`, `list-ca`, `list`, `download`, `revoke`, `renew`, `root`, and `chain`.
 
 `list` and `list-ca` display Index, Common Name, Status, IssuedAt, remain, and the full Fingerprint, in that order. IssuedAt uses UTC. remain shows days until expiry, rounding a partial day up; expired certificates show 0. List responses contain metadata only, without certificate or private-key PEM contents.
 All downloaded certificates, private keys, and trust chains use PEM encoding. Each `{target}.tar.gz` download contains exactly three files: the certificate, its private key, and its trust chain. `GET https://<dns record name>/root` returns the Root CA certificate in PEM. `abpki-cli root` saves it as `root.crt`. The `chain` command downloads the Intermediate CA and Root CA certificates as `trust-chain`.

@@ -45,20 +45,20 @@ fn run() -> Result<()> {
         }
         renewal_certificate = Some(args.remove(pos));
     }
-    if renewal_certificate.is_some() && command != "renew" {
-        return Err("--cert is only supported by renew".into());
+    if renewal_certificate.is_some() && !matches!(command.as_str(), "renew" | "auth") {
+        return Err("--cert is only supported by renew and auth".into());
     }
     if admin.is_some()
         && !matches!(
             command.as_str(),
-            "revoke" | "renew" | "create-ca" | "certificate" | "auth-credential"
+            "revoke" | "renew" | "create-ca" | "certificate" | "auth-credential" | "admin"
         )
     {
         return Err("--pass is only supported by administrator operations".into());
     }
     if matches!(
         command.as_str(),
-        "create-ca" | "revoke" | "certificate" | "auth-credential"
+        "create-ca" | "revoke" | "certificate" | "auth-credential" | "admin"
     ) && admin.is_none()
     {
         return Err("--pass is required for this command".into());
@@ -125,6 +125,36 @@ fn run() -> Result<()> {
             body = serde_json::to_vec(&serde_json::json!({"role":args[0]}))?;
             "/api/auth-credential".to_owned()
         }
+        "admin" if args.is_empty() => {
+            method = "POST";
+            output = Some("admin.pem".to_owned());
+            "/api/admin".to_owned()
+        }
+        "auth" if args.len() >= 2 => {
+            method = "POST";
+            let operation = args.remove(0);
+            let server = args.remove(0);
+            let clients = args
+                .drain(..)
+                .flat_map(|value| {
+                    value
+                        .split(',')
+                        .filter(|item| !item.is_empty())
+                        .map(str::to_owned)
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+            if !matches!(operation.as_str(), "add" | "del")
+                || (operation == "add" && clients.is_empty())
+                || (operation == "del" && clients.len() > 1)
+            {
+                return Err("auth requires add SERVER CLIENT... or del SERVER [CLIENT]".into());
+            }
+            body = serde_json::to_vec(&serde_json::json!({
+                "operation": operation, "server": server, "clients": clients,
+            }))?;
+            "/api/auth".to_owned()
+        }
         "create" if args.is_empty() => {
             method = "POST";
             std::io::stdin().take(1_048_577).read_to_end(&mut body)?;
@@ -148,13 +178,20 @@ fn run() -> Result<()> {
     };
     let credential = if let Some(path) = renewal_certificate {
         Some(std::fs::read_to_string(path)?)
-    } else if matches!(command.as_str(), "revoke" | "create-ca" | "certificate") || admin_renewal {
+    } else if matches!(
+        command.as_str(),
+        "revoke" | "create-ca" | "certificate" | "auth-credential" | "admin"
+    ) || admin_renewal
+    {
         admin
     } else if matches!(command.as_str(), "download" | "renew") {
         Some(client::credentials::load(&args[0])?)
     } else {
         None
     };
+    if command == "auth" && credential.is_none() {
+        return Err("--cert admin.pem is required for auth management".into());
+    }
     let socket = env::var("ABPKI_SOCKET").unwrap_or_else(|_| client::daemon::SOCKET.into());
     let mut response = client::daemon::call(
         std::path::Path::new(&socket),
