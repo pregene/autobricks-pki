@@ -1,6 +1,6 @@
 # Default Intermediate CAs
 
-Autobricks PKI Server 1.0 initializes one Root CA and six Intermediate CAs during initial installation. The Root CA signs each Intermediate CA certificate. `abpkid` manages the resulting hierarchy.
+Autobricks PKI Server initializes one Root CA and eight Intermediate CAs during initial installation. The Root CA signs each Intermediate CA certificate. `abpkid` manages the resulting hierarchy.
 
 Autobricks DNS and Autobricks TrueLog must be installed before Autobricks PKI. See the [installation prerequisites](README.md#installation-prerequisites).
 
@@ -31,8 +31,10 @@ Intermediate names contain 1–16 ASCII letters, digits, or hyphens, excluding t
 | `worm.<baseDomain>` | WORM storage services and their clients | Server and client certificates |
 | `app.<baseDomain>` | Application services and their clients | Server and client certificates |
 | `truelog.<baseDomain>` | TrueLog services and their clients | Server and client certificates |
+| `auth.<baseDomain>` | Auth and PKI administrator authentication | IPC and administrator client credentials |
+| `cert.<baseDomain>` | Certificate renewal authorization | Renewal-authorization client certificates |
 
-Each row represents one Intermediate CA that issues both certificate types, rather than separate server and client CAs.
+The first six Intermediate CAs issue both server and client certificates. The `auth` and `cert` Intermediate CAs are reserved for their dedicated credential flows and cannot be selected for general certificate creation.
 
 ```mermaid
 flowchart TD
@@ -42,6 +44,8 @@ flowchart TD
     Root --> WORM[worm Intermediate CA]
     Root --> Application[app Intermediate CA]
     Root --> TrueLog[truelog Intermediate CA]
+    Root --> Auth[auth Intermediate CA]
+    Root --> Cert[cert Intermediate CA]
     Database --> DatabaseServer[Database server certificates]
     Database --> DatabaseClient[Database client certificates]
     WWW --> WWWServer[Web server certificates]
@@ -54,6 +58,8 @@ flowchart TD
     Application --> ApplicationClient[Application client certificates]
     TrueLog --> TrueLogServer[TrueLog server certificates]
     TrueLog --> TrueLogClient[TrueLog client certificates]
+    Auth --> AuthCredential[IPC and administrator credentials]
+    Cert --> RenewalCredential[Renewal authorization certificates]
 ```
 
 ## CA profile extension example
@@ -132,7 +138,7 @@ Intermediate CA default and maximum validity are calculated during installation 
 
 The Intermediate CA identifies the issuing domain. A `urn:autobricks:purpose:<purpose>` URI SAN can carry a service-purpose claim for the consuming application. CA names and purpose tokens are separate fields; `database.<baseDomain>` is a default CA name, not a substitute for a purpose such as `mariadb` or `postgresql`.
 
-`abpki-cli list-ca` lists issuing Intermediate CAs. Additional Intermediate CA creation through `abpki-cli create-ca` is unavailable in 1.0 and returns `Not implemented`; the management endpoint returns `501 Not Implemented`. This operation is reserved for version 1.1. The initial installation creates the default hierarchy without requiring six separate client-side `create-ca` operations.
+`abpki-cli list-ca` lists issuing Intermediate CAs. Additional Intermediate CA creation through `abpki-cli create-ca` is unavailable in 1.0 and returns `Not implemented`; the management endpoint returns `501 Not Implemented`. This operation is reserved for version 1.1. The initial installation creates the default hierarchy without requiring eight separate client-side `create-ca` operations.
 
 Root CA certificates are downloaded with `root`. An issued certificate's Intermediate CA and Root CA certificates form its downloadable `trust-chain`.
 

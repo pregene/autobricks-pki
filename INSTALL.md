@@ -53,7 +53,7 @@ The included client uses the server installation settings without separate conne
 
 The installer collects base domain, DNS registration IP, bind address, management TLS port, and public HTTPS port. It generates a random 16-character ADMIN password, writes it as `ABPKI_ADMIN_PASSWORD` in root-owned mode-0600 `/etc/autobricks/pki/abpkid.env`, and displays it on completion. SQLite retains the salted administrator password hash for server-side verification. Client-only installation does not generate this password.
 
-The server creates its Root CA, six default Intermediate CAs, and TLS certificate. Intermediate validity is `min(398, TrueLog retention days - 7)` days. DNS registration and audit submission use the installed Autobricks services.
+The server creates its Root CA, eight default Intermediate CAs, and TLS certificate. Intermediate validity is `min(398, TrueLog retention days - 7)` days. DNS registration and audit submission use the installed Autobricks services.
 
 The included client uses the server registration IP, which is present in the server certificate IP SAN, and the configured ports. It enrolls the initialized local Root CA without another settings screen. A wildcard bind address is never used as a destination.
 

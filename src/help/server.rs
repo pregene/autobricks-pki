@@ -4,7 +4,7 @@ pub(super) const OPERATIONS: &[Operation] = &[
     Operation {
         name: "init",
         usage: "init REGISTRATION_IP [BASE_DOMAIN]",
-        description: "Initialize the Root CA, six default Intermediate CAs, and service certificate.",
+        description: "Initialize the Root CA, eight default Intermediate CAs, and service certificate.",
         details: "Arguments:\n  REGISTRATION_IP\n      Server IP registered with Autobricks DNS.\n  BASE_DOMAIN\n      Base domain, up to 24 ASCII characters. Prompts when omitted; default: autobricks.internal.\n\nInitialization settings:\n  ABPKI_ADMIN_PASSWORD\n      Initial administrator password, at least 12 bytes.\n  retention_days\n      PKI retention policy in the JSON configuration; default: 365.\n\nThe configured SQLite and WORM directories must exist. An existing CA hierarchy is not replaced.",
         example: "abpkid init 192.0.2.10 autobricks.internal",
     },

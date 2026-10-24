@@ -4,7 +4,7 @@ Autobricks PKI Server 1.0 provides Root CA and Intermediate CA management and ce
 
 ## Certificate authority hierarchy
 
-A Root CA anchors a certificate hierarchy. Intermediate CAs operate under that hierarchy and issue end-entity certificates for servers and clients. Initial installation creates one Root CA and the six [default Intermediate CAs](../INTERMEDIATE.md): `database`, `www`, `vpn`, `worm`, `app`, and `truelog`. Each issues both server and client certificates. Additional Intermediate CA creation is unavailable in version 1.0.
+A Root CA anchors a certificate hierarchy. Intermediate CAs operate under that hierarchy and issue end-entity certificates. Initial installation creates one Root CA and the eight [default Intermediate CAs](../INTERMEDIATE.md): `database`, `www`, `vpn`, `worm`, `app`, `truelog`, `auth`, and `cert`. The `auth` and `cert` CAs are reserved for dedicated authorization flows; the other six issue both server and client certificates. Additional Intermediate CA creation is unavailable in version 1.0.
 
 ```mermaid
 flowchart TD

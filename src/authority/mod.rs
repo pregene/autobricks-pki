@@ -8,14 +8,18 @@ pub enum DefaultIssuer {
     Worm,
     App,
     Truelog,
+    Auth,
+    Cert,
 }
-pub const DEFAULT_ISSUERS: [DefaultIssuer; 6] = [
+pub const DEFAULT_ISSUERS: [DefaultIssuer; 8] = [
     DefaultIssuer::Database,
     DefaultIssuer::Www,
     DefaultIssuer::Vpn,
     DefaultIssuer::Worm,
     DefaultIssuer::App,
     DefaultIssuer::Truelog,
+    DefaultIssuer::Auth,
+    DefaultIssuer::Cert,
 ];
 impl DefaultIssuer {
     pub fn name(self) -> &'static str {
@@ -26,6 +30,8 @@ impl DefaultIssuer {
             Self::Worm => "worm",
             Self::App => "app",
             Self::Truelog => "truelog",
+            Self::Auth => "auth",
+            Self::Cert => "cert",
         }
     }
 }

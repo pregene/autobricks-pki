@@ -57,7 +57,7 @@ abpkid serve
 
 `init` stores `min(398, retention_days - 7)` as the default and maximum Intermediate CA lifetime. `retention_days` is read from the PKI JSON configuration and defaults to 365.
 
-`init` requires a password of at least 12 bytes and creates the Root CA, six Intermediate CAs, empty signed CRLs, and the PKI service's TLS certificate. It writes certificates and encrypted keys to WORM before committing their metadata and queues DNS registration for the service hostname and audit submission through TrueLog. Reinitializing an existing hierarchy is rejected.
+`init` requires a password of at least 12 bytes and creates the Root CA, eight Intermediate CAs, empty signed CRLs, and the PKI service's TLS certificate. It writes certificates and encrypted keys to WORM before committing their metadata and queues DNS registration for the service hostname and audit submission through TrueLog. Reinitializing an existing hierarchy is rejected.
 
 If external delivery fails after initialization commits, the CA hierarchy remains in SQLite. `serve` retries pending delivery; reinitialization does not replace the hierarchy. The local `root` command exports only the public Root CA certificate as PEM. Distribute this trust anchor through a trusted channel before connecting with `abpki-cli`.
 

@@ -23,7 +23,7 @@ Follow the [Autobricks TrueLog server installation guide](https://github.com/pre
 
 During installation, the PKI service registers its DNS record through `autobricks-dns`. Clients access the service at `https://<dns record name>`. The registered name is the hostname used in the service's CRL and OCSP URLs.
 
-Initial installation creates one Root CA and six Intermediate CAs: `database`, `www`, `vpn`, `worm`, `app`, and `truelog`. Each Intermediate CA issues server and client certificates.
+Initial installation creates one Root CA and eight Intermediate CAs: `database`, `www`, `vpn`, `worm`, `app`, `truelog`, `auth`, and `cert`. The `auth` and `cert` CAs are reserved for authentication and renewal-authorization credentials; the other Intermediate CAs issue server and client certificates.
 
 [Default Intermediate CAs](INTERMEDIATE.md)
 
@@ -34,7 +34,7 @@ Initial installation creates one Root CA and six Intermediate CAs: `database`, `
 ## Certificate services
 
 - Root CA and Intermediate CA management
-- Six default Intermediate CAs initialized at installation; additional CA creation is unavailable in 1.0
+- Eight default Intermediate CAs initialized at installation; additional CA creation is unavailable in 1.0
 - Server and client certificate issuance available to any connected client
 - Automatic DNS registration through `autobricks-dns` when a server certificate is issued
 - Certificate renewal
@@ -119,7 +119,7 @@ Third-party components remain governed by their respective licenses. See [Third-
 
 Certificate management uses TLS port `5545`; public Root CA downloads, CRLs, and OCSP use HTTPS port `5546`. `ABPKI_BIND` contains only the listen IP address. The DNS registration IP is supplied separately with `abpkid init <registration-ip> [baseDomain]`. See [runtime configuration](docs/runtime.md).
 
-Initialization prompts for `baseDomain` when omitted, defaulting to `autobricks.internal`. The Root CA CN is `pki.<baseDomain>`; default Intermediate CA CNs are `database`, `www`, `vpn`, `worm`, `app`, and `truelog`, each suffixed with `.<baseDomain>`.
+Initialization prompts for `baseDomain` when omitted, defaulting to `autobricks.internal`. The Root CA CN is `pki.<baseDomain>`; default Intermediate CA CNs are `database`, `www`, `vpn`, `worm`, `app`, `truelog`, `auth`, and `cert`, each suffixed with `.<baseDomain>`.
 
 [Common Names, DNS naming, and uniqueness](COMMON-NAME.md)
 

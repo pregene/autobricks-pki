@@ -256,7 +256,7 @@ fn complete_lifecycle_and_signed_status() {
             .iter()
             .filter(|c| c.kind == "intermediate")
             .count(),
-        6
+        8
     );
     let issued = f.issue(47);
     assert!(!issued.integrations_pending);
@@ -341,7 +341,6 @@ fn renewal_and_authorization() {
 #[test]
 fn renewal_authorization_certificate_supports_multiple_exact_targets() {
     let f = Fixture::new();
-    f.service.create_ca("cert", None, ADMIN).unwrap();
     let first = f.issue(47).certificate;
     let second = f.issue(47).certificate;
     let unrelated = f.issue(47).certificate;
@@ -417,8 +416,8 @@ fn renewal_authorization_certificate_supports_multiple_exact_targets() {
 #[test]
 fn reserved_auth_and_cert_cas_reject_general_creation() {
     let f = Fixture::new();
-    let auth = f.service.create_ca("auth", None, ADMIN).unwrap();
-    let cert = f.service.create_ca("cert", None, ADMIN).unwrap();
+    let auth = f.service.db.issuer("auth.autobricks.internal").unwrap();
+    let cert = f.service.db.issuer("cert.autobricks.internal").unwrap();
     for issuer in [auth.cn, auth.fingerprint, cert.cn, cert.fingerprint] {
         let result = f.service.create(Create {
             issuer,
@@ -1138,7 +1137,9 @@ fn installation_prompts_for_base_domain_and_builds_ca_subjects() {
             domain.as_bytes()
         );
         let certificates = db.all().unwrap();
-        for prefix in ["pki", "database", "www", "vpn", "worm", "app", "truelog"] {
+        for prefix in [
+            "pki", "database", "www", "vpn", "worm", "app", "truelog", "auth", "cert",
+        ] {
             let certificate = certificates
                 .iter()
                 .find(|c| {
@@ -1292,7 +1293,7 @@ fn additional_ca_creation_requires_admin_and_honors_days() {
                 format!("Bearer {}", String::from_utf8_lossy(ADMIN)),
             )]
             .into(),
-            body: br#"{"name":"auth"}"#.to_vec(),
+            body: br#"{"name":"route-ca"}"#.to_vec(),
         },
     );
     assert_eq!(response.status, "200 OK");
@@ -1910,7 +1911,7 @@ fn list_filter_regression(intermediate: bool) {
     use autobricks_pki::storage::listing::{CertificatePage, ListFilter};
     let f = Fixture::new();
     let command = if intermediate { "list-ca" } else { "list" };
-    let existing = if intermediate { 6 } else { 1 };
+    let existing = if intermediate { 8 } else { 1 };
     let conn = rusqlite::Connection::open(f._temp.path().join("pki.sqlite")).unwrap();
     conn.execute_batch("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<900)
         INSERT INTO certificates(fingerprint,cn,kind,serial,not_before,not_after,certificate_path,private_key_path,valid)

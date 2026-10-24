@@ -1,5 +1,9 @@
 # Development history
 
+## 1.1.145 — 2026-10-25
+
+- Added the reserved `auth.<baseDomain>` and `cert.<baseDomain>` Intermediate CAs to the default installation hierarchy, increasing the installation-created Intermediate CAs from six to eight.
+
 ## 1.1.144 — 2026-10-25
 
 - Added certificate-authorized `abpki-cli auth add` and `auth del`, including per-client and server-wide deletion, using a validated `admin.pem` and the mutually authenticated PKI-to-Auth IPC channel.
