@@ -47,7 +47,7 @@ impl Service {
             let rk = PKey::private_key_from_pem(root.key_pem.as_bytes())?;
             let previous = X509::from_pem(ca.pem.as_bytes())?;
             let previous_key = PKey::private_key_from_pem(ca.key_pem.as_bytes())?;
-            let (cert, key) = autobricks_certificate::dynamic::renew_ca(
+            let (cert, key) = crate::certificate::crypto::renew_ca(
                 &ca.cn,
                 Some((&rc, &rk)),
                 validity,

@@ -58,6 +58,11 @@ All downloaded certificates, private keys, and trust chains use PEM encoding. Ea
 
 `abpkid` keeps its live SQLite database on mutable storage outside WORM. `autobricks-worm` provides appendable WORM storage for audit logs and generated certificates, and can also store SQLite backup copies. Certificates, encrypted private-key PEM copies, and backup files can be written directly through `/mnt/worm-storage`, through the WORM mount provided by the required `autobricks-truelog` installation.
 
+The installer creates one verified SQLite backup after completing the CA
+hierarchy and service certificate, before starting PKI. Scheduled online
+backups then follow `backup_interval` in `/etc/autobricks/pki/pki.json` and
+are stored in `/var/backup/autobricks/pki/`.
+
 [Storage](docs/storage.md) · [Stored certificate information](DDL.md) · [Result and error codes](ERROR.md) · [SQLite notice](licenses/SQLite-PUBLIC-DOMAIN.md)
 
 ## Certificate validity

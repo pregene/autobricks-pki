@@ -1,4 +1,5 @@
 pub mod archive;
+mod backup;
 pub mod database;
 pub mod worm;
 

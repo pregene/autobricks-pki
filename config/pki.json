@@ -1,0 +1,13 @@
+{
+  "auth_support": false,
+  "auth_2fa": false,
+  "database": "/var/lib/autobricks/pki/abpki.sqlite",
+  "backup_directory": "/var/backup/autobricks/pki",
+  "backup_interval": 30,
+  "worm": "/mnt/worm-storage/pki",
+  "dns_socket": "/run/autobricks-dns/autobricks-dns.sock",
+  "origin": "https://pki.autobricks.internal:5546",
+  "truelog_cli": "/usr/bin/ab-truelog-cli",
+  "retention_days": 365,
+  "comm_config": "/etc/autobricks/pki/comm.json"
+}

@@ -307,6 +307,40 @@ fn complete_lifecycle_and_signed_status() {
     );
     assert!(s.renew(&c.fingerprint, &issued.download_token).is_err());
 }
+
+#[test]
+fn database_backup_uses_configured_directory_and_interval() {
+    let f = Fixture::new();
+    let directory = f._temp.path().join("database-backup");
+    let first = f
+        .service
+        .db
+        .backup_if_due(&directory, 30, 1_000_000)
+        .unwrap()
+        .unwrap();
+    assert!(first.starts_with(&directory));
+    let connection = rusqlite::Connection::open(&first).unwrap();
+    assert_eq!(
+        connection
+            .query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+            .unwrap(),
+        "ok"
+    );
+    assert!(
+        f.service
+            .db
+            .backup_if_due(&directory, 30, 1_000_000 + 30 * 86_400 - 1)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        f.service
+            .db
+            .backup_if_due(&directory, 30, 1_000_000 + 30 * 86_400)
+            .unwrap()
+            .is_some()
+    );
+}
 #[test]
 fn renewal_and_authorization() {
     let f = Fixture::new();

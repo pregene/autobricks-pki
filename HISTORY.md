@@ -1,5 +1,11 @@
 # Development history
 
+## 1.1.146 — 2026-10-25
+
+- Made `pki.json` an installed runtime configuration and added scheduled SQLite online backups using `backup_directory` and `backup_interval`.
+- Fresh installation now requires one verified database backup after CA and service-certificate creation and before the PKI service is started.
+- Removed the Certificate source-tree Cargo dependency; PKI now owns its request policy types and calls only the installed Certificate ABI at runtime.
+
 ## 1.1.145 — 2026-10-25
 
 - Added the reserved `auth.<baseDomain>` and `cert.<baseDomain>` Intermediate CAs to the default installation hierarchy, increasing the installation-created Intermediate CAs from six to eight.

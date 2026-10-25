@@ -46,7 +46,8 @@ __pycache__/
 *.pyc
 
 # Local configuration and verification material
-/config/
+/config/*
+!/config/pki.json
 /packaging/
 /scripts/
 /test/

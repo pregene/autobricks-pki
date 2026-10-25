@@ -136,7 +136,13 @@ The archive contains exactly `certificate.pem`, `private-key.pem`, and `trust-ch
 
 ## Backup artifacts
 
-SQLite backup copies may be placed on WORM as separate artifacts. A database backup includes artifact paths, the private-key encryption password, and credential hashes and requires corresponding access restrictions. The server does not currently create automatic backups or manage a backup directory. The live database and rollback journal remain outside WORM even when backup artifacts are archived there.
+Verified SQLite backup copies are stored under `/var/backup/autobricks/pki/`.
+Fresh installation creates one backup after the CA hierarchy and service
+certificate are complete and before starting the service. Later online backups
+follow `backup_interval` from `/etc/autobricks/pki/pki.json`. Backup files
+contain artifact paths, the private-key encryption password, and credential
+hashes and therefore use owner-only permissions. The live database and rollback
+journal remain under `/var/lib/autobricks/pki/`.
 
 ```mermaid
 flowchart TD

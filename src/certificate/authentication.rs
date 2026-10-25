@@ -107,6 +107,6 @@ impl Service {
                 .setting("base_domain")?
                 .ok_or("missing installation baseDomain")?,
         )?;
-        Ok(self.db.issuer(&format!("auth.{base_domain}"))?)
+        self.db.issuer(&format!("auth.{base_domain}"))
     }
 }

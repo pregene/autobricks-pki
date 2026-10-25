@@ -36,6 +36,7 @@ fn run() -> Result<()> {
         && !(args.len() == 2 && args[0] == "identity")
         && args != ["serve"]
         && args != ["root"]
+        && args != ["backup"]
     {
         return Err("unknown command".into());
     }
@@ -81,6 +82,18 @@ fn run() -> Result<()> {
     };
     if args == ["root"] {
         print!("{}", service.public_root()?.pem);
+        return Ok(());
+    }
+    if args == ["backup"] {
+        let path = service
+            .db
+            .backup_if_due(
+                &c.backup_directory,
+                c.backup_interval,
+                autobricks_pki::server::service::now(),
+            )?
+            .ok_or("database backup is not due")?;
+        println!("PKI database backup created: {}", path.display());
         return Ok(());
     }
     if args[0] == "identity" {
@@ -158,12 +171,21 @@ fn run() -> Result<()> {
             }
         })?;
     let maintenance = service.clone();
+    let backup_directory = c.backup_directory.clone();
+    let backup_interval = c.backup_interval;
     std::thread::Builder::new()
         .name("abpkid-maintenance".into())
         .spawn(move || {
             loop {
                 match maintenance.lock() {
                     Ok(s) => {
+                        if let Err(error) = s.db.backup_if_due(
+                            &backup_directory,
+                            backup_interval,
+                            autobricks_pki::server::service::now(),
+                        ) {
+                            eprintln!("database backup failed: {error}");
+                        }
                         match s.run_hourly_renewal(autobricks_pki::server::service::now()) {
                             Ok(true) => eprintln!("hourly renewal completed"),
                             Ok(false) => (),

@@ -11,8 +11,15 @@ Autobricks PKI Server 1.0 uses SQLite on mutable storage and the Autobricks True
 | Private-key encryption secret, administrator hash and certificate token hashes | Protected SQLite settings and records |
 | Audit log contents | TrueLog-managed WORM files |
 | Pending DNS, audit and CRL delivery | SQLite |
+| Verified SQLite backup snapshots | `/var/backup/autobricks/pki/` |
 
 Certificate and key PEM contents are not duplicated in SQLite. See [stored certificate information](../DDL.md) and [file locations](../FILES.md).
+
+Fresh installation creates and verifies one SQLite backup after the complete CA
+hierarchy and PKI service certificate have been created, before the service is
+started. Installation fails if this initial backup cannot be completed.
+Subsequent online backups run according to `backup_interval` in
+`/etc/autobricks/pki/pki.json`.
 
 ## Issuance and delivery
 
