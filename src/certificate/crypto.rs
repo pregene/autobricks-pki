@@ -2,6 +2,7 @@
 use crate::{
     Result,
     certificate::{
+        ca_subject::CaSubject,
         profile::{Distribution, LeafProfile},
         validity::Validity,
     },
@@ -20,6 +21,7 @@ use std::{
     slice,
 };
 const ABI: u32 = 1;
+const CA_ABI_V2: u32 = 2;
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct Bytes {
@@ -33,10 +35,11 @@ struct Buffer {
     capacity: usize,
 }
 #[repr(C)]
-struct CaRequest {
+struct CaRequestV2 {
     struct_size: usize,
     abi_version: u32,
     common_name: Bytes,
+    subject_frame: Bytes,
     not_before: i64,
     not_after: i64,
     issuer_certificate_pem: Bytes,
@@ -67,7 +70,7 @@ struct Generated {
     serial: Buffer,
     error: Buffer,
 }
-type GenCa = unsafe extern "C" fn(*const CaRequest, *mut Generated) -> i32;
+type GenCaV2 = unsafe extern "C" fn(*const CaRequestV2, *mut Generated) -> i32;
 type GenLeaf = unsafe extern "C" fn(*const LeafRequest, *mut Generated) -> i32;
 type Free = unsafe extern "C" fn(Generated);
 type ProtectedIssuer = (Option<Vec<u8>>, Option<Vec<u8>>, Option<Vec<u8>>);
@@ -152,9 +155,9 @@ fn issuer(v: Option<(&X509, &PKey<Private>)>) -> Result<ProtectedIssuer> {
         None => Ok((None, None, None)),
     }
 }
-fn call_ca(r: &CaRequest) -> Result<(X509, PKey<Private>)> {
+fn call_ca(r: &CaRequestV2) -> Result<(X509, PKey<Private>)> {
     let l = unsafe { Library::new(path()?)? };
-    let g: Symbol<GenCa> = unsafe { l.get(b"ab_certificate_generate_ca_v1\0")? };
+    let g: Symbol<GenCaV2> = unsafe { l.get(b"ab_certificate_generate_ca_v2\0")? };
     let f: Symbol<Free> = unsafe { l.get(b"ab_certificate_free_result_v1\0")? };
     let mut o = MaybeUninit::uninit();
     let s = unsafe { g(r, o.as_mut_ptr()) };
@@ -181,12 +184,15 @@ pub fn ca(
     cn: &str,
     i: Option<(&X509, &PKey<Private>)>,
     v: Validity,
+    subject: &CaSubject,
 ) -> Result<(X509, PKey<Private>)> {
     let (c, k, p) = issuer(i)?;
-    call_ca(&CaRequest {
-        struct_size: size_of::<CaRequest>(),
-        abi_version: ABI,
+    let subject_frame = rmp_serde::to_vec_named(subject)?;
+    call_ca(&CaRequestV2 {
+        struct_size: size_of::<CaRequestV2>(),
+        abi_version: CA_ABI_V2,
         common_name: b(cn.as_bytes()),
+        subject_frame: b(&subject_frame),
         not_before: v.not_before,
         not_after: v.not_after,
         issuer_certificate_pem: opt(c.as_deref()),
@@ -203,14 +209,17 @@ pub fn renew_ca(
     v: Validity,
     existing: &PKey<Private>,
     previous: &X509,
+    subject: &CaSubject,
 ) -> Result<(X509, PKey<Private>)> {
     let (c, k, p) = issuer(i)?;
     let (ek, ep) = protected(existing)?;
     let prev = previous.to_pem()?;
-    call_ca(&CaRequest {
-        struct_size: size_of::<CaRequest>(),
-        abi_version: ABI,
+    let subject_frame = rmp_serde::to_vec_named(subject)?;
+    call_ca(&CaRequestV2 {
+        struct_size: size_of::<CaRequestV2>(),
+        abi_version: CA_ABI_V2,
         common_name: b(cn.as_bytes()),
+        subject_frame: b(&subject_frame),
         not_before: v.not_before,
         not_after: v.not_after,
         issuer_certificate_pem: opt(c.as_deref()),

@@ -3,6 +3,7 @@ use crate::{
     authority::DEFAULT_ISSUERS,
     authorization::password,
     certificate::{
+        ca_subject::CaSubject,
         crypto,
         profile::{LeafKind, LeafProfile},
         validity::{LEAF_DAYS, Validity},
@@ -20,7 +21,9 @@ impl Service {
         ip: std::net::IpAddr,
         base_domain: &str,
         retention_days: u32,
+        ca_subject: CaSubject,
     ) -> Result<()> {
+        let ca_subject = ca_subject.validate()?;
         let base_domain = crate::authority::domain::validate(base_domain)?;
         let policy = super::validity::Policy::new(retention_days)?;
         if self.db.has_certificates()? {
@@ -31,12 +34,15 @@ impl Service {
             self.db
                 .set_setting("ca_validity_policy", &serde_json::to_vec(&policy)?)?;
             self.db.set_setting("base_domain", base_domain.as_bytes())?;
+            self.db
+                .set_setting("ca_subject", &serde_json::to_vec(&ca_subject)?)?;
             let start = now();
             let validity = Validity {
                 not_before: start,
                 not_after: 253402300799,
             };
-            let (cert, key) = crypto::ca(&format!("pki.{base_domain}"), None, validity)?;
+            let (cert, key) =
+                crypto::ca(&format!("pki.{base_domain}"), None, validity, &ca_subject)?;
             let root = record(cert, key, "root", None, validity)?;
             self.db.insert(&root)?;
             self.archive(&root, "root-created")?;
@@ -48,6 +54,7 @@ impl Service {
                     &format!("{}.{base_domain}", name.name()),
                     Some((&root_cert, &root_key)),
                     validity,
+                    &ca_subject,
                 )?;
                 let c = record(
                     cert,
@@ -105,7 +112,14 @@ impl Service {
         let validity = Validity::new(start, days, Some(root.validity))?;
         let root_cert = X509::from_pem(root.pem.as_bytes())?;
         let root_key = PKey::private_key_from_pem(root.key_pem.as_bytes())?;
-        let (cert, key) = crypto::ca(&common_name, Some((&root_cert, &root_key)), validity)?;
+        let ca_subject: CaSubject =
+            serde_json::from_slice(&self.db.setting("ca_subject")?.ok_or("missing CA subject")?)?;
+        let (cert, key) = crypto::ca(
+            &common_name,
+            Some((&root_cert, &root_key)),
+            validity,
+            &ca_subject,
+        )?;
         let created = record(cert, key, "intermediate", Some(root.fingerprint), validity)?;
         self.db.transaction(|| {
             self.db.insert(&created)?;

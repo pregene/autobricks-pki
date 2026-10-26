@@ -5,7 +5,7 @@
   "backup_directory": "/var/backup/autobricks/pki",
   "backup_interval": 30,
   "worm": "/mnt/worm-storage/pki",
-  "dns_socket": "/run/autobricks-dns/autobricks-dns.sock",
+  "dns_socket": "/var/run/autobricks/dns.sock",
   "origin": "https://pki.autobricks.internal:5546",
   "truelog_cli": "/usr/bin/ab-truelog-cli",
   "retention_days": 365,

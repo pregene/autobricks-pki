@@ -1,6 +1,7 @@
 mod common;
 use autobricks_pki::{
     certificate::{
+        ca_subject::CaSubject,
         profile::{Distribution, LeafKind, LeafProfile},
         validity::Validity,
     },
@@ -25,6 +26,17 @@ use std::{
     time::Duration,
 };
 const ADMIN: &[u8] = b"test-administrator-password";
+fn ca_subject() -> CaSubject {
+    CaSubject {
+        country_name: "KR".into(),
+        state_or_province_name: "Chungcheongnam-do".into(),
+        locality_name: "Cheonan-si".into(),
+        organization_name: "Korea Automotive Technology Institute".into(),
+        organizational_unit_name: "Private PKI".into(),
+        street_address: "303 Pungse-ro, Pungse-myeon, Dongnam-gu".into(),
+        postal_code: "31214".into(),
+    }
+}
 struct Fixture {
     service: Service,
     _temp: tempfile::TempDir,
@@ -76,6 +88,7 @@ impl Fixture {
                 "127.0.0.1".parse().unwrap(),
                 "autobricks.internal",
                 365,
+                ca_subject(),
             )
             .unwrap();
         Self {
@@ -95,7 +108,8 @@ impl Fixture {
         let root_cert = X509::from_pem(root.pem.as_bytes()).unwrap();
         let root_key = openssl::pkey::PKey::private_key_from_pem(root.key_pem.as_bytes()).unwrap();
         let validity = Validity::new(now(), days, Some(root.validity)).unwrap();
-        let (cert, key) = crypto::ca(cn, Some((&root_cert, &root_key)), validity).unwrap();
+        let (cert, key) =
+            crypto::ca(cn, Some((&root_cert, &root_key)), validity, &ca_subject()).unwrap();
         let record = Certificate {
             fingerprint: crypto::fingerprint(&cert).unwrap(),
             cn: cn.into(),
@@ -368,6 +382,7 @@ fn renewal_and_authorization() {
                 "127.0.0.1".parse().unwrap(),
                 "autobricks.internal",
                 365,
+                ca_subject(),
             )
             .is_err()
     );
@@ -931,11 +946,15 @@ fn local_initialization_and_root_export() {
     let db = dir.join("second.sqlite");
     let worm = dir.join("second-worm");
     std::fs::create_dir(&worm).unwrap();
+    let subject_path = dir.join("second-ca-subject.json");
+    std::fs::write(&subject_path, serde_json::to_vec(&ca_subject()).unwrap()).unwrap();
     let command = |action: &str| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_abpkid"));
         command.arg(action);
         if action == "init" {
-            command.args(["192.0.2.44", "example.internal"]);
+            command
+                .args(["192.0.2.44", "example.internal", "--ca-subject"])
+                .arg(&subject_path);
         }
         command
             .env("ABPKI_DATABASE", &db)
@@ -1121,21 +1140,21 @@ fn stored_keys_are_encrypted_and_require_the_password() {
 }
 
 #[test]
-fn installation_prompts_for_base_domain_and_builds_ca_subjects() {
+fn installation_uses_explicit_base_domain_and_ca_subject() {
     use openssl::nid::Nid;
-    use std::process::{Command, Stdio};
+    use std::process::Command;
     let fixture = Fixture::new();
-    for (index, input, domain) in [
-        (0, "\n", "autobricks.internal"),
-        (1, "Example.Internal\n", "example.internal"),
-    ] {
+    for (index, domain) in [(0, "autobricks.internal"), (1, "example.internal")] {
         let directory = fixture._temp.path().join(format!("installation-{index}"));
         std::fs::create_dir(&directory).unwrap();
         let worm = directory.join("worm");
         std::fs::create_dir(&worm).unwrap();
         let database = directory.join("pki.sqlite");
-        let mut child = Command::new(env!("CARGO_BIN_EXE_abpkid"))
-            .args(["init", "192.0.2.10"])
+        let subject_path = directory.join("ca-subject.json");
+        std::fs::write(&subject_path, serde_json::to_vec(&ca_subject()).unwrap()).unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_abpkid"))
+            .args(["init", "192.0.2.10", domain, "--ca-subject"])
+            .arg(&subject_path)
             .env("ABPKI_DATABASE", &database)
             .env("ABPKI_WORM", &worm)
             .env_remove("ABPKI_ORIGIN")
@@ -1145,25 +1164,12 @@ fn installation_prompts_for_base_domain_and_builds_ca_subjects() {
             )
             .env("ABPKI_TRUELOG_CLI", &fixture.service.truelog.executable)
             .env("AUTOBRICKS_DNS_SOCKET", &fixture.service.dns.socket)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+            .output()
             .unwrap();
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(input.as_bytes())
-            .unwrap();
-        let result = child.wait_with_output().unwrap();
         assert!(
             result.status.success(),
             "{}",
             String::from_utf8_lossy(&result.stderr)
-        );
-        assert!(
-            String::from_utf8_lossy(&result.stderr).contains("Base domain [autobricks.internal]")
         );
         let db = Database::open(&database, &worm).unwrap();
         assert_eq!(
@@ -1184,10 +1190,18 @@ fn installation_prompts_for_base_domain_and_builds_ca_subjects() {
             let x509 = X509::from_pem(certificate.pem.as_bytes()).unwrap();
             for (nid, expected) in [
                 (Nid::COUNTRYNAME, "KR"),
-                (Nid::STATEORPROVINCENAME, "Seoul"),
-                (Nid::LOCALITYNAME, "Seoul"),
-                (Nid::ORGANIZATIONNAME, "Autobricks, Co."),
-                (Nid::ORGANIZATIONALUNITNAME, "Autobricks PKI Service"),
+                (Nid::STATEORPROVINCENAME, "Chungcheongnam-do"),
+                (Nid::LOCALITYNAME, "Cheonan-si"),
+                (
+                    Nid::ORGANIZATIONNAME,
+                    "Korea Automotive Technology Institute",
+                ),
+                (Nid::ORGANIZATIONALUNITNAME, "Private PKI"),
+                (
+                    Nid::STREETADDRESS,
+                    "303 Pungse-ro, Pungse-myeon, Dongnam-gu",
+                ),
+                (Nid::POSTALCODE, "31214"),
             ] {
                 let values: Vec<_> = x509
                     .subject_name()

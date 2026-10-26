@@ -40,8 +40,15 @@ The installer collects the inputs listed below. Tab moves between fields, Left/R
 
 | Package | Input | Default or requirement |
 | --- | --- | --- |
-| Server | Base domain | `autobricks.internal`; at most 24 ASCII characters |
+| Server | Base domain | Required; at most 24 ASCII DNS characters |
 | Server | DNS registration IP | Required reachable IPv4 or IPv6 address |
+| Server | CA country | Required two-letter country code |
+| Server | CA state or province | Required printable ASCII value |
+| Server | CA locality | Required printable ASCII value |
+| Server | CA organization | Required printable ASCII value |
+| Server | CA organizational unit | Required printable ASCII value |
+| Server | CA street address | Required printable ASCII value |
+| Server | CA postal code | Required printable ASCII value |
 | Server | Bind address | `0.0.0.0` |
 | Client only | Server address | Required DNS name or IP matching the server certificate |
 | Both | Management TLS port | `5545` |
@@ -51,9 +58,11 @@ The included client uses the server installation settings without separate conne
 
 ## Server and included client
 
-The installer collects base domain, DNS registration IP, bind address, management TLS port, and public HTTPS port. It generates a random 16-character ADMIN password, writes it as `ABPKI_ADMIN_PASSWORD` in root-owned mode-0600 `/etc/autobricks/pki/abpkid.env`, and displays it on completion. SQLite retains the salted administrator password hash for server-side verification. Client-only installation does not generate this password.
+The installer collects the base domain, DNS registration IP, complete CA Subject, bind address, management TLS port, and public HTTPS port. No organization or location is assumed. It stores the exact CA Subject in mode-0600 `/etc/autobricks/pki/ca-subject.json` and in PKI state, and applies it to the Root CA and every Intermediate CA. Only each CA Common Name differs. Leaf certificate Subjects remain controlled by their issuance profiles and do not inherit the CA Subject. It generates a random 16-character ADMIN password, writes it as `ABPKI_ADMIN_PASSWORD` in root-owned mode-0600 `/etc/autobricks/pki/abpkid.env`, and displays it on completion. SQLite retains the salted administrator password hash for server-side verification. Client-only installation does not generate this password.
 
 The server creates its Root CA, eight default Intermediate CAs, and TLS certificate. Intermediate validity is `min(398, TrueLog retention days - 7)` days. DNS registration and audit submission use the installed Autobricks services.
+
+The CA Subject is immutable after hierarchy creation. Reconfiguration must supply the same values; changing it requires creation of a new CA hierarchy. CA renewal preserves the previous certificate Subject.
 
 The included client uses the server registration IP, which is present in the server certificate IP SAN, and the configured ports. It enrolls the initialized local Root CA without another settings screen. A wildcard bind address is never used as a destination.
 

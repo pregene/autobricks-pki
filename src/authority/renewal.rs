@@ -1,6 +1,7 @@
 use crate::{
     Result,
     authorization::password,
+    certificate::ca_subject::CaSubject,
     certificate::validity::DAY,
     server::service::{Service, now, record},
     storage::database::Certificate,
@@ -47,12 +48,16 @@ impl Service {
             let rk = PKey::private_key_from_pem(root.key_pem.as_bytes())?;
             let previous = X509::from_pem(ca.pem.as_bytes())?;
             let previous_key = PKey::private_key_from_pem(ca.key_pem.as_bytes())?;
+            let ca_subject: CaSubject = serde_json::from_slice(
+                &self.db.setting("ca_subject")?.ok_or("missing CA subject")?,
+            )?;
             let (cert, key) = crate::certificate::crypto::renew_ca(
                 &ca.cn,
                 Some((&rc, &rk)),
                 validity,
                 &previous_key,
                 &previous,
+                &ca_subject,
             )?;
             let replacement = record(cert, key, "intermediate", Some(root.fingerprint), validity)?;
             self.db.insert(&replacement)?;

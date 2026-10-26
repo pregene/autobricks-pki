@@ -122,7 +122,7 @@ The [build runner](docs/build.md) increments the build number before running a b
 Autobricks code is governed by the [Autobricks PKI Source-Available License 1.0](LICENSE).
 Third-party components remain governed by their respective licenses. See [Third-party licenses and notices](THIRD_PARTY_NOTICES.md) for license texts and applicable conditions.
 
-Certificate management uses TLS port `5545`; public Root CA downloads, CRLs, and OCSP use HTTPS port `5546`. `ABPKI_BIND` contains only the listen IP address. The DNS registration IP is supplied separately with `abpkid init <registration-ip> [baseDomain]`. See [runtime configuration](docs/runtime.md).
+Certificate management uses TLS port `5545`; public Root CA downloads, CRLs, and OCSP use HTTPS port `5546`. `ABPKI_BIND` contains only the listen IP address. Direct initialization requires the DNS registration IP, base domain, and a complete CA Subject JSON file: `abpkid init <registration-ip> <baseDomain> --ca-subject <file>`. The package installer collects every CA Subject value explicitly; it does not assume an organization or location. See [runtime configuration](docs/runtime.md).
 
 Initialization prompts for `baseDomain` when omitted, defaulting to `autobricks.internal`. The Root CA CN is `pki.<baseDomain>`; default Intermediate CA CNs are `database`, `www`, `vpn`, `worm`, `app`, `truelog`, `auth`, and `cert`, each suffixed with `.<baseDomain>`.
 

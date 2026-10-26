@@ -32,7 +32,7 @@ fn run() -> Result<()> {
     } else {
         env::var_os("ABPKI_CONFIG").map(Into::into)
     };
-    if !((args.len() == 2 || args.len() == 3) && args[0] == "init")
+    if !(args.len() == 5 && args[0] == "init" && args[3] == "--ca-subject")
         && !(args.len() == 2 && args[0] == "identity")
         && args != ["serve"]
         && args != ["root"]
@@ -131,6 +131,10 @@ fn run() -> Result<()> {
                 .as_deref()
                 .ok_or("missing installation baseDomain")?,
             c.retention_days,
+            serde_json::from_slice(
+                &fs::read(&args[4])
+                    .map_err(|error| format!("cannot read CA subject file: {error}"))?,
+            )?,
         )?;
         println!("PKI initialized");
         return Ok(());

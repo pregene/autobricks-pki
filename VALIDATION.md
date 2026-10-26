@@ -13,7 +13,7 @@ Installation-created Intermediate CAs use the installation-derived lifetime; add
 
 ## Installation retention boundary
 
-During installation initialization, `abpkid init` reads `AB_WORM_RETAIN_DAYS` from the installed TrueLog configuration (`/etc/default/autobricks-log` by default). It calculates:
+During installation initialization, `abpkid init` reads `AB_WORM_RETAIN_DAYS` from the installed TrueLog configuration (`/etc/autobricks/truelog/truelog.env`). It calculates:
 
 ```text
 intermediate_max_days = min(398, truelog_retention_days - 7)

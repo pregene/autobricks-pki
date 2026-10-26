@@ -3,10 +3,10 @@ use super::Operation;
 pub(super) const OPERATIONS: &[Operation] = &[
     Operation {
         name: "init",
-        usage: "init REGISTRATION_IP [BASE_DOMAIN]",
+        usage: "init REGISTRATION_IP BASE_DOMAIN --ca-subject FILE",
         description: "Initialize the Root CA, eight default Intermediate CAs, and service certificate.",
-        details: "Arguments:\n  REGISTRATION_IP\n      Server IP registered with Autobricks DNS.\n  BASE_DOMAIN\n      Base domain, up to 24 ASCII characters. Prompts when omitted; default: autobricks.internal.\n\nInitialization settings:\n  ABPKI_ADMIN_PASSWORD\n      Initial administrator password, at least 12 bytes.\n  retention_days\n      PKI retention policy in the JSON configuration; default: 365.\n\nThe configured SQLite and WORM directories must exist. An existing CA hierarchy is not replaced.",
-        example: "abpkid init 192.0.2.10 autobricks.internal",
+        details: "Arguments:\n  REGISTRATION_IP\n      Server IP registered with Autobricks DNS.\n  BASE_DOMAIN\n      Base domain, up to 24 ASCII characters.\n  --ca-subject FILE\n      Required JSON file containing the complete Root and Intermediate CA Subject.\n\nInitialization settings:\n  ABPKI_ADMIN_PASSWORD\n      Initial administrator password, at least 12 bytes.\n  retention_days\n      PKI retention policy in the JSON configuration; default: 365.\n\nThe configured SQLite and WORM directories must exist. An existing CA hierarchy is not replaced.",
+        example: "abpkid init 192.0.2.10 example.internal --ca-subject /etc/autobricks/pki/ca-subject.json",
     },
     Operation {
         name: "serve",
@@ -24,4 +24,4 @@ pub(super) const OPERATIONS: &[Operation] = &[
     },
 ];
 
-pub(super) const EXAMPLES: &str = "  abpkid init 192.0.2.10 autobricks.internal\n  abpkid serve\n  abpkid root > root.crt\n  abpkid serve --help";
+pub(super) const EXAMPLES: &str = "  abpkid init 192.0.2.10 example.internal --ca-subject /etc/autobricks/pki/ca-subject.json\n  abpkid serve\n  abpkid root > root.crt\n  abpkid serve --help";

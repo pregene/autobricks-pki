@@ -1,5 +1,16 @@
 # Development history
 
+## 1.1.151 — 2026-10-26
+
+- Aligned the PKI installer prerequisite check with TrueLog's canonical configuration file at `/etc/autobricks/truelog/truelog.env`.
+- Aligned DNS registration with `/var/run/autobricks/dns.sock` and create PKI server/client runtime directories before their systemd services start.
+
+## 1.1.147 — 2026-10-26
+
+- Replaced hardcoded CA organization and location values with a complete, required installation-time CA Subject.
+- Added Certificate CA ABI v2 consumption and persisted the exact Subject for Root, default Intermediate, additional Intermediate, and renewal operations.
+- Added installer validation and immutable reconfiguration checks for country, state or province, locality, organization, organizational unit, street address, and postal code.
+
 ## 1.1.146 — 2026-10-25
 
 - Made `pki.json` an installed runtime configuration and added scheduled SQLite online backups using `backup_directory` and `backup_interval`.
