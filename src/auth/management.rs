@@ -12,7 +12,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-const IPC_ABI_VERSION: u32 = 4;
+const IPC_ABI_VERSION: u32 = 5;
 const IPC_FRAME_VERSION: u32 = 1;
 type Version = unsafe extern "C" fn() -> u32;
 type Initialize = unsafe extern "C" fn(*const c_char) -> *mut c_void;
@@ -124,10 +124,10 @@ impl Client {
         if unsafe { abi() } != IPC_ABI_VERSION || unsafe { frame() } != IPC_FRAME_VERSION {
             return Err("Auth management IPC ABI or frame version mismatch".to_owned());
         }
-        let initialize = symbol::<Initialize>(&library, b"ab_ipc_initialize\0")?;
-        let uninitialize = symbol::<Uninitialize>(&library, b"ab_ipc_uninitialize\0")?;
-        let exchange = symbol::<Exchange>(&library, b"ab_ipc_exchange\0")?;
-        let string_free = symbol::<StringFree>(&library, b"ab_ipc_string_free\0")?;
+        let initialize = symbol::<Initialize>(&library, b"ab_ipc_client_initialize\0")?;
+        let uninitialize = symbol::<Uninitialize>(&library, b"ab_ipc_client_uninitialize\0")?;
+        let exchange = symbol::<Exchange>(&library, b"ab_ipc_client_request\0")?;
+        let string_free = symbol::<StringFree>(&library, b"ab_ipc_client_response_free\0")?;
         let ipc = CString::new(ipc.to_string())
             .map_err(|_| "Auth management IPC configuration contains NUL".to_owned())?;
         let handle = unsafe { initialize(ipc.as_ptr()) };

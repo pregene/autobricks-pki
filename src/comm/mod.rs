@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
 };
 
-const COMM_ABI: u32 = 1;
+const COMM_ABI: u32 = 2;
 const IPC_API: u32 = 2;
 const SERVICE_API: u32 = 1;
 const TRANSPORT_API: u32 = 2;
@@ -209,18 +209,19 @@ impl Runtime {
         }
         let last_error: LastError = *unsafe { library.get::<LastError>(b"ab_comm_last_error\0") }
             .map_err(|e| e.to_string())?;
-        let initialize: Initialize = *unsafe { library.get::<Initialize>(b"ab_comm_initialize\0") }
+        let initialize: Initialize =
+            *unsafe { library.get::<Initialize>(b"ab_comm_definition_create\0") }
+                .map_err(|e| e.to_string())?;
+        let bind: Bind = *unsafe { library.get::<Bind>(b"ab_comm_application_bind\0") }
             .map_err(|e| e.to_string())?;
-        let bind: Bind = *unsafe { library.get::<Bind>(b"ab_comm_bind_application\0") }
+        let start: Start = *unsafe { library.get::<Start>(b"ab_comm_server_start\0") }
             .map_err(|e| e.to_string())?;
-        let start: Start =
-            *unsafe { library.get::<Start>(b"ab_comm_start\0") }.map_err(|e| e.to_string())?;
         let stop: Stop =
-            *unsafe { library.get::<Stop>(b"ab_comm_stop\0") }.map_err(|e| e.to_string())?;
-        let unbind: Unbind = *unsafe { library.get::<Unbind>(b"ab_comm_unbind_application\0") }
+            *unsafe { library.get::<Stop>(b"ab_comm_server_stop\0") }.map_err(|e| e.to_string())?;
+        let unbind: Unbind = *unsafe { library.get::<Unbind>(b"ab_comm_application_unbind\0") }
             .map_err(|e| e.to_string())?;
         let uninitialize: Uninitialize =
-            *unsafe { library.get::<Uninitialize>(b"ab_comm_uninitialize\0") }
+            *unsafe { library.get::<Uninitialize>(b"ab_comm_definition_destroy\0") }
                 .map_err(|e| e.to_string())?;
         let config = CString::new(config).map_err(|_| "COMM config contains NUL")?;
         let definition = unsafe { initialize(config.as_ptr()) };

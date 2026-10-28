@@ -1,5 +1,11 @@
 # Development history
 
+## 1.1.155 — 2026-10-28
+
+- Updated the Comm loader to ABI v2 and its role-specific definition,
+  application, and server symbol names.
+- Updated Auth management IPC calls to the ABI v5 client-specific symbols.
+
 ## 1.1.151 — 2026-10-26
 
 - Aligned the PKI installer prerequisite check with TrueLog's canonical configuration file at `/etc/autobricks/truelog/truelog.env`.
