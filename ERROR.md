@@ -64,6 +64,6 @@ The endpoint requires POST with `Content-Type: application/ocsp-request`. Unsupp
 | Connection lost after sending a mutation | Determine the outcome before repeating the operation |
 | Service unavailable | Restore connectivity/service availability, then check certificate state |
 
-A lost response can follow committed issuance. Repeating creation does not recover a lost token and can be rejected because the CN is already reserved. Repeating renewal of the old fingerprint can issue another replacement. Authorized standalone revocation can be repeated safely.
+A lost response can follow committed issuance. Repeating creation does not recover a lost token and can be rejected because a non-REVOKED generation reserves the CN. A CN becomes available for separate new issuance only after every generation with that CN is REVOKED. Repeating renewal of the old fingerprint can issue another replacement. Authorized standalone revocation can be repeated safely.
 
 [Creation](LEAF-CREATE.md) · [Revocation](LEAF-REVOKE.md) · [Renewal](LEAF-RENEW.md)

@@ -36,7 +36,7 @@ impl Service {
         }
         let mut issued = self.db.transaction(|| {
             let duplicate: bool = self.db.conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM certificates WHERE kind NOT IN ('root','intermediate') AND lower(cn)=?)",
+                "SELECT EXISTS(SELECT 1 FROM certificates WHERE kind NOT IN ('root','intermediate') AND valid!='REVOKED' AND lower(cn)=?)",
                 [&request.profile.common_name], |row| row.get(0))?;
             if duplicate {
                 return Err("leaf CN already exists; use renewal for an existing certificate".into());

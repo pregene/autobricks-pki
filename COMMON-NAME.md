@@ -33,11 +33,18 @@ The base domain and leaf CN each have their own 24-character limit; the generate
 | Different Intermediate CA | Does not permit reuse of an existing leaf CN |
 | Different server/client certificate kind | Does not permit reuse of an existing leaf CN |
 | Letter-case difference | Counts as the same CN |
-| Existing expired or revoked certificate | Retains its CN; new issuance cannot reuse it |
+| Existing expired certificate | Retains its CN; new issuance cannot reuse it |
+| Existing revoked certificate | Does not reserve its CN; new issuance may reuse it when every generation with that CN is REVOKED |
 | Authorized leaf renewal | Preserve the CN and issue a new certificate with a new fingerprint |
 | Intermediate CA renewal | Preserve the CA subject and signing key; create a new certificate generation |
 
-New issuance reserves the leaf CN. Authorized renewal uses the existing certificate's access token after it becomes SUPERSEDED, including early ADMIN or issuer-replacement transitions. CN equality alone does not authorize renewal. Renewal generations remain distinguishable by certificate fingerprint, serial number, and validity period.
+New issuance reserves the leaf CN while any generation with that CN is not
+REVOKED. Authorized renewal uses the existing certificate's access token after
+it becomes SUPERSEDED, including early ADMIN or issuer-replacement transitions.
+CN equality alone does not authorize renewal. Once every generation with a CN
+is REVOKED, a separate new issuance may reuse that CN. Renewal and reissuance
+generations remain distinguishable by certificate fingerprint, serial number,
+and validity period.
 
 ## Server DNS naming
 
@@ -66,7 +73,7 @@ The PKI service's installation endpoint is registered separately as `pki.<baseDo
 
 A generated DNS name already assigned to another server leaf is rejected during new issuance, even if concatenating different Intermediate and CN labels produces the same name. For example, issuer `www-a` with CN `b` and issuer `www` with CN `a-b` both produce `www-a-b.<baseDomain>`.
 
-Renewal preserves the existing DNS SAN and repeats the same registration. An existing identical DNS address record is idempotent. An external DNS record with a different address is a delivery conflict; PKI does not overwrite it. External registration failures remain pending for retry after certificate issuance. Revocation does not remove DNS records or release the CN for new issuance.
+Renewal preserves the existing DNS SAN and repeats the same registration. An existing identical DNS address record is idempotent. An external DNS record with a different address is a delivery conflict; PKI does not overwrite it. External registration failures remain pending for retry after certificate issuance. Revocation does not remove DNS records. Once every certificate generation that owns a generated DNS name is REVOKED, a separate new issuance may reuse its CN and generated DNS name; registration of the same address remains idempotent.
 
 ## TLS identity and DNS syntax
 

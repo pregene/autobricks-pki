@@ -148,14 +148,14 @@ impl Database {
     }
     pub fn dns_name_exists(&self, name: &str) -> Result<bool> {
         let first: bool = self.conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM certificates WHERE kind IN ('server','server-and-client') AND json_extract(profile,'$.dns_names[0]') COLLATE NOCASE=?1)",
+            "SELECT EXISTS(SELECT 1 FROM certificates WHERE kind IN ('server','server-and-client') AND valid!='REVOKED' AND json_extract(profile,'$.dns_names[0]') COLLATE NOCASE=?1)",
             [name], |r| r.get(0))?;
         if first {
             return Ok(true);
         }
         // Older/imported multi-SAN profiles retain collision protection for every alias.
         Ok(self.conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM certificates c, json_each(c.profile,'$.dns_names') n WHERE c.kind IN ('server','server-and-client') AND json_array_length(c.profile,'$.dns_names')>1 AND n.value COLLATE NOCASE=?1)",
+            "SELECT EXISTS(SELECT 1 FROM certificates c, json_each(c.profile,'$.dns_names') n WHERE c.kind IN ('server','server-and-client') AND c.valid!='REVOKED' AND json_array_length(c.profile,'$.dns_names')>1 AND n.value COLLATE NOCASE=?1)",
             [name], |r| r.get(0))?)
     }
 }

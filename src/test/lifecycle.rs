@@ -1261,6 +1261,66 @@ fn leaf_names_are_unique_and_dns_names_follow_issuer_and_cn() {
             .is_err()
     );
     assert_eq!(f.service.db.all().unwrap().len(), before);
+    let retired_client = f
+        .service
+        .create(make(
+            "retired-client",
+            "app.autobricks.internal",
+            LeafKind::Client,
+        ))
+        .unwrap();
+    assert!(
+        f.service
+            .create(make(
+                "retired-client",
+                "app.autobricks.internal",
+                LeafKind::Client,
+            ))
+            .is_err()
+    );
+    f.service
+        .revoke(&retired_client.certificate.fingerprint, ADMIN)
+        .unwrap();
+    let reissued_client = f
+        .service
+        .create(make(
+            "retired-client",
+            "app.autobricks.internal",
+            LeafKind::Client,
+        ))
+        .unwrap();
+    assert_eq!(reissued_client.certificate.cn, "retired-client");
+    assert_ne!(
+        reissued_client.certificate.fingerprint,
+        retired_client.certificate.fingerprint
+    );
+    let retired_server = f
+        .service
+        .create(make(
+            "retired-server",
+            "www.autobricks.internal",
+            LeafKind::Server,
+        ))
+        .unwrap();
+    let retired_server_profile: LeafProfile =
+        serde_json::from_str(retired_server.certificate.profile.as_deref().unwrap()).unwrap();
+    f.service
+        .revoke(&retired_server.certificate.fingerprint, ADMIN)
+        .unwrap();
+    let reissued_server = f
+        .service
+        .create(make(
+            "retired-server",
+            "www.autobricks.internal",
+            LeafKind::Server,
+        ))
+        .unwrap();
+    let reissued_server_profile: LeafProfile =
+        serde_json::from_str(reissued_server.certificate.profile.as_deref().unwrap()).unwrap();
+    assert_eq!(
+        reissued_server_profile.dns_names,
+        retired_server_profile.dns_names
+    );
     let renewed = f
         .service
         .renew(&issued.certificate.fingerprint, &issued.download_token)

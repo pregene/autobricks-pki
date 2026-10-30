@@ -19,7 +19,7 @@ Both repository directories are ignored by Git. Service installation paths are s
 | `/usr/bin/autobricks/abpkid` | Server executable; started with `serve` | Root-owned, executable (`0755`) |
 | `/usr/bin/autobricks/abpki-cli` | Connecting client executable | Root-owned, executable (`0755`) |
 | `/usr/bin/abpkid`, `/usr/bin/abpki-cli` | Public command links to the canonical executable files | Package-owned symbolic links |
-| `/lib/systemd/system/abpkid.service` | Package-provided systemd unit | Root-owned (`0644`) |
+| `/usr/lib/systemd/system/abpkid.service` | Package-provided systemd unit | Root-owned (`0644`) |
 | `/etc/autobricks/pki/` | Shared PKI server/client configuration root; secrets retain restrictive file modes | Root-owned (`0755`) |
 | `/etc/autobricks/pki/abpkid.env` | Environment settings supplied to the process by systemd | Root-owned (`0600`) |
 | `/var/lib/autobricks/pki/` | Mutable PKI state directory | Owned by the autobricks-pki operating-system account (`0700`) |
@@ -170,7 +170,7 @@ flowchart TD
 | `/usr/local/share/ca-certificates/autobricks-pki-client.crt` | Enrolled public Root CA; mode `0644` |
 | `/run/autobricks/pki-client/client.sock` | Local request socket; mode `0660`, client group and installer UID access |
 | `~/.abpki/<fingerprint>` | Caller-owned certificate token; mode `0600` under a `0700` directory |
-| `/lib/systemd/system/abpki-cli.service` | Local client service included in both packages |
+| `/usr/lib/systemd/system/abpki-cli.service` | Local client service included in both packages |
 
 ## Installed macOS client files
 

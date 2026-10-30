@@ -114,7 +114,7 @@ abpki-cli download <fingerprint> web01
 
 ## Failure and retry behavior
 
-Rejected issuance does not return a successfully created certificate. WORM files already written remain subject to retention. DNS or audit delivery failure after commit retains the issued certificate and pending operations. Missing or unreadable issuer files, failed WORM writes, signing failure, and database faults produce a server error rather than a successful issuance. A lost issuance response can leave a committed certificate whose token the client never received; the interface has no issuance request identifier or token recovery operation. Repeating `create` with the same CN is rejected by uniqueness checks.
+Rejected issuance does not return a successfully created certificate. WORM files already written remain subject to retention. DNS or audit delivery failure after commit retains the issued certificate and pending operations. Missing or unreadable issuer files, failed WORM writes, signing failure, and database faults produce a server error rather than a successful issuance. A lost issuance response can leave a committed certificate whose token the client never received; the interface has no issuance request identifier or token recovery operation. Repeating `create` with the same CN is rejected while any certificate generation with that CN is not REVOKED. After every generation with that CN is REVOKED, a separate new issuance may reuse the CN; it creates a new key, serial, fingerprint, access token, and certificate generation.
 
 [Stored certificate information](DDL.md) · [Naming](COMMON-NAME.md) · [Revocation](LEAF-REVOKE.md) · [Renewal](LEAF-RENEW.md)
 

@@ -1,5 +1,18 @@
 # Development history
 
+## 1.1.156 — 2026-10-30
+
+- Allowed separate new leaf issuance to reuse a CN after every previous
+  generation with that CN is REVOKED.
+- Released generated DNS-name collision protection only when every owning
+  server certificate generation is REVOKED, while preserving external DNS
+  records for idempotent re-registration.
+- Added client and server reissuance regressions and aligned the creation,
+  renewal, naming, and error contracts with revoked-name reuse.
+- Moved packaged systemd units from `/lib/systemd/system` to
+  `/usr/lib/systemd/system` and enforced canonical versioned dependency
+  libraries under `/usr/lib/autobricks` with compatibility links in `/usr/lib`.
+
 ## 1.1.155 — 2026-10-28
 
 - Updated the Comm loader to ABI v2 and its role-specific definition,

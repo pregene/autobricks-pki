@@ -202,7 +202,8 @@ The replacement certificate and encrypted key are stored on WORM. Failed DNS or 
 | CA replacement has not completed, or issuance fails | Retry after the server can issue under a VALID CA. The old certificate's retirement deadline continues to run. |
 | Replacement duration would exceed issuer validity | Issuance fails; it does not shorten the requested lifetime. |
 | Connection lost before the renewal response arrives | Issuance may already have committed. Repeating the old request can create another replacement; it does not recover the token from the lost response. |
-| Old certificate is revoked or expired | Renewal fails; a new issuance and application deployment are required. Normal new-issuance name constraints still apply. |
+| Old certificate is revoked | Renewal fails; use a separate new issuance. The revoked generation no longer reserves its CN, but any other non-REVOKED generation with that CN still blocks reuse. |
+| Old certificate is expired | Renewal fails; a new issuance and application deployment are required. The expired generation continues to reserve its CN until it is revoked. |
 
 ## Retirement
 
