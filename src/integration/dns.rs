@@ -52,11 +52,6 @@ pub fn records(profile: &crate::certificate::profile::LeafProfile) -> Result<Vec
     if profile.dns_names.is_empty() || profile.ip_addresses.is_empty() {
         return Err("server issuance requires DNS names and IP addresses for registration".into());
     }
-    if profile.ip_addresses.iter().filter(|a| a.is_ipv4()).count() > 1
-        || profile.ip_addresses.iter().filter(|a| a.is_ipv6()).count() > 1
-    {
-        return Err("autobricks-dns supports one address per name and record type".into());
-    }
     let mut out = Vec::new();
     for name in &profile.dns_names {
         if name.len() > 253
@@ -70,7 +65,20 @@ pub fn records(profile: &crate::certificate::profile::LeafProfile) -> Result<Vec
         {
             return Err("DNS registration requires an exact valid hostname".into());
         }
+        // PKI owns one automatic DNS registration per address family. Additional
+        // same-family IP SANs identify alternate server interfaces and remain
+        // available for administrator-managed DNS records.
+        let mut registered_ipv4 = false;
+        let mut registered_ipv6 = false;
         for ip in &profile.ip_addresses {
+            let already_registered = if ip.is_ipv4() {
+                std::mem::replace(&mut registered_ipv4, true)
+            } else {
+                std::mem::replace(&mut registered_ipv6, true)
+            };
+            if already_registered {
+                continue;
+            }
             out.push(Record {
                 name: name.to_ascii_lowercase(),
                 record_type: if ip.is_ipv4() { "A" } else { "AAAA" }.into(),
@@ -79,4 +87,36 @@ pub fn records(profile: &crate::certificate::profile::LeafProfile) -> Result<Vec
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::certificate::{profile::LeafProfile, validity::Validity};
+
+    #[test]
+    fn registers_only_the_first_address_of_each_family() -> Result<()> {
+        let profile: LeafProfile = serde_json::from_value(serde_json::json!({
+            "kind": "server",
+            "common_name": "failover",
+            "dns_names": ["www-failover.example.internal"],
+            "ip_addresses": [
+                "192.0.2.20",
+                "192.0.2.21",
+                "2001:db8::20",
+                "2001:db8::21"
+            ],
+            "validity": Validity::default()
+        }))?;
+        let records = records(&profile)?;
+        let registered = records
+            .iter()
+            .map(|record| (record.record_type.as_str(), record.ip.to_string()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            registered,
+            vec![("A", "192.0.2.20".into()), ("AAAA", "2001:db8::20".into())]
+        );
+        Ok(())
+    }
 }

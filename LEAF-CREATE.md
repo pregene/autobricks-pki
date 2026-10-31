@@ -37,11 +37,47 @@ JSON
 | `profile.extended_key_usage` | Array of EKU names or OIDs. Selects server/client classification for the existing DNS and lifecycle integration. |
 | `profile.common_name` | Required: 1–24 ASCII letters, digits, or hyphens, without leading or trailing hyphens; normalized to lowercase. |
 | `profile.dns_names` | Optional array. For server-capable certificates, omit it or supply exactly the generated `<intermediate>-<cn>.<baseDomain>` name. |
-| `profile.ip_addresses` | Optional array for client-only certificates. Server-capable certificates require at least one address, with at most one IPv4 and one IPv6 address. These become IP SANs and DNS A/AAAA records. |
+| `profile.ip_addresses` | Optional array for client-only certificates. Server-capable certificates require 1–16 unique IPv4 or IPv6 addresses. Every address becomes an IP SAN. PKI automatically registers only the first address of each family in DNS; additional same-family addresses are administrator-managed DNS records. |
 | `profile.uri_sans` | Optional array, 1–16 supplied ASCII strings, at most 2,048 bytes each. Values, including repetitions, are encoded without checking their application meaning. |
 | `profile.validity` | Optional object with `not_before` and `not_after` as Unix UTC seconds. Omission uses the current time and 47 days. The entire interval must fit within the selected issuer's validity. |
 
 `uri_sans` is an array of strings, each encoded as one URI SAN. Contents are preserved as ASCII values within the documented length limit; PKI does not interpret URI purpose or access-policy claims. The consuming application decides what the values mean. Separate values with JSON commas instead of combining them into one string.
+
+### Multiple interfaces without bonding
+
+A server connected to separate failover switches may use multiple interface
+addresses without bonding. Put every address on which the same TLS service can
+receive connections in one server certificate. For example:
+
+```json
+{
+  "issuer": "www.example.internal",
+  "profile": {
+    "kind": "server",
+    "common_name": "web01",
+    "ip_addresses": [
+      "10.10.1.10",
+      "10.10.2.10"
+    ]
+  }
+}
+```
+
+The issued certificate contains both `10.10.1.10` and `10.10.2.10` as IP SANs,
+so TLS identity verification succeeds when a client connects directly to either
+address. The generated DNS SAN remains one service name. PKI registers the first
+IPv4 address, `10.10.1.10`, as its automatic A record. An administrator may add
+the second A record to the same DNS name when DNS-based failover or address
+selection is required. The same rule applies independently to IPv6: PKI
+registers the first IPv6 address as AAAA, while additional IPv6 records are
+administrator-managed.
+
+Array order therefore defines the primary automatic DNS address within each
+address family. Every address must be unique. The service must bind to the
+listed interfaces, and routing or failover configuration remains an operating
+system and network responsibility. Certificate renewal preserves the complete
+ordered IP SAN list; it does not discard alternate interface addresses or
+automatically add their DNS records.
 
 Unknown request/profile fields are rejected. The extended profile supports the Subject DN, SAN and extension fields listed below. CSR and caller-provided private-key input remain unavailable. See [certificate fields and purposes](CERTITFICATE.md) for the broader certificate field catalog.
 
@@ -158,7 +194,7 @@ Certificate identifiers follow [OpenSSL extension configuration](https://docs.op
 | Issuer DN | issuer | `issuer` | Top-level issuer selects an Intermediate CA by CN or fingerprint. Current generated Intermediate CN has a 1–16-byte name component and baseDomain of at most 24 ASCII bytes; fingerprint is 64 lowercase hexadecimal characters. The actual CA Subject supplies Issuer DN. | IMPLEMENTED |
 | Certificate body | validity | `validity` | Current optional object: not_before and not_after are signed 64-bit Unix-second integers; not_before < not_after, entirely within issuer validity and ASN.1 time encoding range. Omission uses current time plus 47 days. | IMPLEMENTED |
 | SAN | dNSName | `dns_names` | 1–16 supplied IA5String values, each 1–253 ASCII bytes. Existing server issuance still accepts only the generated DNS name; omission generates it. Client-only values receive length/encoding checks. SAN total at most 64. | IMPLEMENTED |
-| SAN | iPAddress | `ip_addresses` | 1–16 supplied IP literals, encoded as 4-byte IPv4 or 16-byte IPv6 addresses. Existing server DNS registration still requires 1–2 addresses, at most one per family. SAN total at most 64. | IMPLEMENTED |
+| SAN | iPAddress | `ip_addresses` | 1–16 supplied IP literals, encoded as 4-byte IPv4 or 16-byte IPv6 addresses. Server values must be unique. PKI automatically registers the first IPv4 and first IPv6 address only; additional same-family DNS records are administrator-managed. SAN total at most 64. | IMPLEMENTED |
 | SAN | uniformResourceIdentifier | `uri_sans` | 1–16 IA5String values, each 1–2,048 ASCII bytes; SAN total at most 64. Contents and repetitions are preserved; no URI scheme, purpose, permission, CIDR-policy or endpoint checks. | IMPLEMENTED |
 | SAN | rfc822Name | `email_sans` | 1–16 IA5String values, each 1–254 ASCII bytes; SAN total at most 64. No mailbox syntax, identity or ownership checks. | IMPLEMENTED |
 | SAN | directoryName | `directory_name_sans` | Input: 1–16 nonempty DN objects, using the DN field limits; nested CN is 1–64 Unicode scalars and is not a reserved leaf CN. No repeated scalar attributes or multi-valued RDNs. Shared SAN total 64. | IMPLEMENTED |

@@ -1850,6 +1850,43 @@ fn failed_crl_publications_coalesce_and_retry_independently_of_external_delivery
 }
 
 #[test]
+fn server_leaf_preserves_multiple_interface_ip_sans_on_renewal() {
+    let f = Fixture::new();
+    let addresses = vec!["192.0.2.20".parse().unwrap(), "192.0.2.21".parse().unwrap()];
+    let issued = f
+        .service
+        .create(Create {
+            issuer: "www.autobricks.internal".into(),
+            profile: LeafProfile {
+                extra: Default::default(),
+                kind: LeafKind::Server,
+                common_name: "failover".into(),
+                dns_names: vec![],
+                ip_addresses: addresses.clone(),
+                uri_sans: vec!["urn:autobricks:purpose:www".into()],
+                validity: Validity::new(now(), 6, None).unwrap(),
+            },
+        })
+        .unwrap();
+    let certificate = X509::from_pem(issued.certificate.pem.as_bytes()).unwrap();
+    let subject_alt_names = certificate.subject_alt_names().unwrap();
+    let ip_sans = subject_alt_names
+        .iter()
+        .filter_map(|name| name.ipaddress())
+        .collect::<Vec<_>>();
+    assert!(ip_sans.contains(&&[192, 0, 2, 20][..]));
+    assert!(ip_sans.contains(&&[192, 0, 2, 21][..]));
+
+    let renewed = f
+        .service
+        .renew(&issued.certificate.fingerprint, &issued.download_token)
+        .unwrap();
+    let renewed_profile: LeafProfile =
+        serde_json::from_str(renewed.certificate.profile.as_deref().unwrap()).unwrap();
+    assert_eq!(renewed_profile.ip_addresses, addresses);
+}
+
+#[test]
 fn dns_index_allows_renewal_but_blocks_new_issuance_and_finds_aliases() {
     let f = Fixture::new();
     let issued = f.issue(6);

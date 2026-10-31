@@ -65,7 +65,7 @@ Server and combined server/client leaf certificates register this name through A
 | `app.autobricks.internal` | `backend01` | `app-backend01.autobricks.internal` |
 | `truelog.autobricks.internal` | `audit01` | `truelog-audit01.autobricks.internal` |
 
-The generated name is inserted into the certificate's DNS SAN. A creation request may omit `dns_names`; if supplied, it must contain exactly the generated name. IPv4 and IPv6 SAN addresses supply the A and AAAA records, respectively. The DNS integration supports at most one address of each family per name. Client-only issuance does not register DNS.
+The generated name is inserted into the certificate's DNS SAN. A creation request may omit `dns_names`; if supplied, it must contain exactly the generated name. Server certificates may contain multiple unique IPv4 and IPv6 SAN addresses. PKI automatically registers the first IPv4 address as A and the first IPv6 address as AAAA. Administrators manage DNS records for additional same-family addresses. Client-only issuance does not register DNS.
 
 The PKI service's installation endpoint is registered separately as `pki.<baseDomain>` by default, with an optional `ABPKI_ORIGIN` override. Its internally managed TLS leaf uses CN `pki` and includes the endpoint hostname in DNS SAN. CA Common Names do not by themselves create DNS records.
 

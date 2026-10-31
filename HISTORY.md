@@ -1,5 +1,14 @@
 # Development history
 
+## 1.1.157 — 2026-10-31
+
+- Allowed one server certificate to identify multiple unique IPv4 or IPv6
+  interfaces, including non-bonded failover network paths.
+- Kept automatic DNS ownership narrow by registering only the first address of
+  each family; administrators manage additional same-family DNS records.
+- Preserved the complete ordered IP SAN list during renewal and documented the
+  multi-interface deployment and TLS verification behavior.
+
 ## 1.1.156 — 2026-10-30
 
 - Allowed separate new leaf issuance to reuse a CN after every previous

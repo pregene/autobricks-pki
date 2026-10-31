@@ -1,6 +1,7 @@
 use crate::{Result, certificate::validity::Validity};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::collections::BTreeSet;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum LeafKind {
@@ -43,6 +44,16 @@ impl LeafProfile {
     pub fn validate(&self, issuer: Validity) -> Result<()> {
         super::common_name::leaf(&self.common_name)?;
         self.validity.validate(Some(issuer))?;
+        if self.kind.is_server() {
+            let mut addresses = BTreeSet::new();
+            if self
+                .ip_addresses
+                .iter()
+                .any(|address| !addresses.insert(*address))
+            {
+                return Err("server certificate IP SANs must be unique".into());
+            }
+        }
         super::extensions::prepare(self)?;
         Ok(())
     }
@@ -158,3 +169,31 @@ pub use crate::client::origin::Distribution;
 pub const AIA_OID: &str = "1.3.6.1.5.5.7.1.1";
 pub const OCSP_ACCESS_OID: &str = "1.3.6.1.5.5.7.48.1";
 pub const CRL_DISTRIBUTION_OID: &str = "2.5.29.31";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn server_ip_sans_must_be_unique() -> Result<()> {
+        let profile: LeafProfile = serde_json::from_value(serde_json::json!({
+            "kind": "server",
+            "common_name": "duplicate-ip",
+            "dns_names": ["www-duplicate-ip.example.internal"],
+            "ip_addresses": ["192.0.2.20", "192.0.2.20"],
+            "validity": Validity::default()
+        }))?;
+        let now = chrono::Utc::now().timestamp();
+        let issuer = Validity {
+            not_before: now - 60,
+            not_after: now + 400 * 86_400,
+        };
+        assert!(
+            profile
+                .validate(issuer)
+                .err()
+                .is_some_and(|error| error.to_string().contains("IP SANs must be unique"))
+        );
+        Ok(())
+    }
+}
